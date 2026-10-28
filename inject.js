@@ -1,5 +1,5 @@
 // Runs inside the claude.ai page of the desktop app, either from the DevTools
-// snippet (snippet.py) or from loader.js in a patched copy (patch.py).
+// snippet (setup.py) or from loader.js in a patched copy (patch.py).
 // onSave persists a picker choice; without it, the choice is logged for loader.js.
 //
 // Sidebar markup it relies on (Claude 3.6556.2):
