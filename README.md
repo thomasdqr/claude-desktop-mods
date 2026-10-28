@@ -5,6 +5,7 @@ Color and icon each project in the Claude desktop app's Code sidebar, like tab g
 - Each project becomes a block tinted with its own color.
 - Click a block's icon to pick one of 2,000+ [Lucide](https://lucide.dev) icons and a color.
 - Each block shows its 5 latest sessions, with "Show more" for the rest.
+- A light circles the border of a block while one of its sessions is running.
 - Drag blocks to reorder them, folded or unfolded.
 
 > **Unofficial.** This is not made or supported by Anthropic. It builds a modified copy of
@@ -56,7 +57,14 @@ for Keychain access: click "Always Allow".
 
 ## Good to know
 
-- **Run one app at a time.** Claude and Claude Colors share the same data and login.
+- **Run one app at a time.** Claude and Claude Colors share the same data and login, and
+  running both makes them fight over each session. Claude Colors offers to quit Claude when
+  it finds it open, at launch and while running.
+- **Notifications** come from Claude Colors, with its own icon, and clicking one opens it.
+  The copy has its own app ID for this, so macOS asks once to allow its notifications.
+  To check them, run
+  `touch .notify-test` in this folder: a test notification shows, and the result goes to
+  `~/Library/Logs/Claude/claude-colors-notify.log`.
 - **After each Claude update,** quit Claude Colors and run `python3 patch.py` again.
 - **If the colors disappear,** the claude.ai sidebar probably changed. The markup
   `inject.js` relies on is listed at the top of that file.

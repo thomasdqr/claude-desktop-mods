@@ -21,6 +21,11 @@ DST = os.path.expanduser("~/Applications/Claude Colors.app")
 HERE = os.path.dirname(os.path.abspath(__file__))
 BLOCK_SIZE = 4 * 1024 * 1024
 LOADER_NAME = "claude-colors.js"
+# macOS picks the icon and the app to open for a notification by bundle id, so the
+# copy needs its own. The data folder follows the app's product name, so it's shared.
+BUNDLE_ID = "local.claude-colors"
+APP_NAME = "Claude Colors"
+LSREGISTER = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 # The six pride flag colors along the icon's diagonal, as (position 0-1, hue in degrees):
 # red, orange, yellow, green, blue, violet. The ends sit inside the rounded corners, so
 # each color gets its own visible band.
@@ -149,9 +154,13 @@ def main():
         check=True,
     )
     recolor_icon(DST)
+    # CFBundleName stays "Claude": Electron finds its "<CFBundleName> Helper.app" processes by it.
+    for key, value in (("CFBundleIdentifier", BUNDLE_ID), ("CFBundleDisplayName", APP_NAME)):
+        subprocess.run(["plutil", "-replace", key, "-string", value, f"{DST}/Contents/Info.plist"], check=True)
     subprocess.run(["xattr", "-cr", DST], check=True)
     subprocess.run(["codesign", "--force", "--deep", "--sign", "-", DST], check=True, capture_output=True)
     subprocess.run(["codesign", "--verify", "--deep", DST], check=True)
+    subprocess.run([LSREGISTER, "-f", DST], check=True)
     print(f"Done: {DST}")
 
 

@@ -15,6 +15,9 @@ function claudeColors({ config, icons }) {
   window.__claudeColors?.destroy();
 
   const VISIBLE_ROWS = 5;
+  const ORBIT_DASH = 56;
+  const ORBIT_SPEED = 140; // px per second
+  const ORBIT_RADIUS = 11.25;
   const SAVE_PREFIX = "__claude_colors_save__";
   const DEFAULT_ICON = "folder";
   const DEFAULT_COLOR = "#9AA3AE";
@@ -50,6 +53,24 @@ function claudeColors({ config, icons }) {
       box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cc-accent) 14%, transparent);
     }
     [data-cc-section] [data-gap-after] { margin-top: 0 !important; }
+
+    /* A light that travels along the border while a session in the block is running.
+       A dash on the border's own outline keeps the same speed on every block shape. */
+    @keyframes cc-orbit { to { stroke-dashoffset: calc(-1 * var(--cc-perimeter)); } }
+    [data-cc-orbit] {
+      position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1;
+      pointer-events: none; overflow: visible;
+      filter: drop-shadow(0 0 3px var(--cc-accent));
+    }
+    [data-cc-orbit] rect {
+      x: 0.75px; y: 0.75px; width: calc(100% - 1.5px); height: calc(100% - 1.5px); rx: 11.25px;
+      fill: none; stroke: var(--cc-accent); stroke-width: 1.5px; stroke-linecap: round;
+      stroke-dasharray: ${ORBIT_DASH}px calc(var(--cc-perimeter) - ${ORBIT_DASH}px);
+      animation: cc-orbit var(--cc-duration) linear infinite;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      [data-cc-orbit] rect { animation: none; stroke-dasharray: none; opacity: 0.6; }
+    }
     [data-cc-section] [data-sidebar-group-label] {
       min-height: 32px; margin-top: 0 !important; padding-block: 0 !important; padding-inline-start: 3px; border-radius: 9px;
     }
@@ -209,7 +230,42 @@ function claudeColors({ config, icons }) {
       section.style.setProperty("--cc-accent", project?.color || DEFAULT_COLOR);
       decorateTitle(section, project, label);
       limitRows(section, label);
+      updateOrbit(section);
     }
+  }
+
+  // The duration follows the block's perimeter, so the light moves at ORBIT_SPEED on any block.
+  function sizeOrbit(section) {
+    const width = section.offsetWidth - 1.5;
+    const height = section.offsetHeight - 1.5;
+    const perimeter = 2 * (width + height) - (8 - 2 * Math.PI) * ORBIT_RADIUS;
+    if (Math.abs(perimeter - (Number(section.dataset.ccPerimeter) || 0)) < 1) return;
+    section.dataset.ccPerimeter = String(perimeter);
+    section.style.setProperty("--cc-perimeter", `${perimeter}px`);
+    section.style.setProperty("--cc-duration", `${perimeter / ORBIT_SPEED}s`);
+  }
+
+  const resizeObserver = new ResizeObserver((entries) => entries.forEach((entry) => sizeOrbit(entry.target)));
+
+  function updateOrbit(section) {
+    const isRunning = Boolean(section.querySelector('[data-attention="working"]'));
+    let orbit = section.querySelector(":scope > [data-cc-orbit]");
+    if (!isRunning) {
+      if (orbit) {
+        orbit.remove();
+        resizeObserver.unobserve(section);
+      }
+      return;
+    }
+    if (!orbit) {
+      orbit = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      orbit.setAttribute("data-cc-orbit", "");
+      orbit.setAttribute("aria-hidden", "true");
+      orbit.appendChild(document.createElementNS("http://www.w3.org/2000/svg", "rect"));
+      section.appendChild(orbit);
+      resizeObserver.observe(section);
+    }
+    sizeOrbit(section);
   }
 
   function closePicker() {
@@ -311,10 +367,12 @@ function claudeColors({ config, icons }) {
 
   function destroy() {
     observer.disconnect();
+    resizeObserver.disconnect();
     clearTimeout(pending);
     closePicker();
     style.remove();
-    document.querySelectorAll("[data-cc-badge], [data-cc-more]").forEach((el) => el.remove());
+    document.querySelectorAll("[data-cc-badge], [data-cc-more], [data-cc-orbit]").forEach((el) => el.remove());
+    document.querySelectorAll("[data-cc-perimeter]").forEach((el) => el.removeAttribute("data-cc-perimeter"));
     for (const attribute of ATTRIBUTES) {
       document.querySelectorAll(`[${attribute}]`).forEach((el) => el.removeAttribute(attribute));
     }
