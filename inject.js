@@ -25,7 +25,7 @@ function claudeColors({ config, icons }) {
     "#F0609E", "#E5484D", "#F08A3C", "#F5B83D", "#D4D96A", "#3DBE7A",
     "#6FC2B4", "#5BC0F8", "#4F86F7", "#A07CF0", "#C8915F", "#9AA3AE",
   ];
-  const ATTRIBUTES = ["data-cc-section", "data-cc-expanded", "data-cc-title", "data-cc-name", "data-cc-extra"];
+  const ATTRIBUTES = ["data-cc-section", "data-cc-expanded", "data-cc-title", "data-cc-name", "data-cc-rows"];
   const LEADING_EMOJI = /^[^\p{L}\p{N}]+/u;
   const displayName = (label) => label.replace(LEADING_EMOJI, "").trim();
   const keyOf = (label) => displayName(label).toLowerCase();
@@ -47,8 +47,13 @@ function claudeColors({ config, icons }) {
       --df-group-pt: 0px;
       --df-hover: color-mix(in srgb, var(--cc-accent) 16%, transparent);
       --df-selected: color-mix(in srgb, var(--cc-accent) 26%, transparent);
-      gap: 1px !important; margin: 0 !important; padding: 3px;
-      border-radius: 12px;
+      /* Concentric corners: an inner radius is the outer one minus the gap between them. */
+      --cc-radius: 12px;
+      --cc-padding: 3px;
+      --cc-inner-radius: calc(var(--cc-radius) - var(--cc-padding));
+      --df-radius-pill: var(--cc-inner-radius);
+      gap: 1px !important; margin: 0 !important; padding: var(--cc-padding);
+      border-radius: var(--cc-radius);
       background: color-mix(in srgb, var(--cc-accent) 11%, transparent);
       box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cc-accent) 14%, transparent);
     }
@@ -56,23 +61,21 @@ function claudeColors({ config, icons }) {
 
     /* A light that travels along the border while a session in the block is running.
        A dash on the border's own outline keeps the same speed on every block shape. */
-    @keyframes cc-orbit { to { stroke-dashoffset: calc(-1 * var(--cc-perimeter)); } }
     [data-cc-orbit] {
       position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1;
       pointer-events: none; overflow: visible;
       filter: drop-shadow(0 0 3px var(--cc-accent));
     }
     [data-cc-orbit] rect {
-      x: 0.75px; y: 0.75px; width: calc(100% - 1.5px); height: calc(100% - 1.5px); rx: 11.25px;
+      x: 0.75px; y: 0.75px; width: calc(100% - 1.5px); height: calc(100% - 1.5px); rx: calc(var(--cc-radius) - 0.75px);
       fill: none; stroke: var(--cc-accent); stroke-width: 1.5px; stroke-linecap: round;
-      stroke-dasharray: ${ORBIT_DASH}px calc(var(--cc-perimeter) - ${ORBIT_DASH}px);
-      animation: cc-orbit var(--cc-duration) linear infinite;
+      stroke-dasharray: 0 100000;
     }
     @media (prefers-reduced-motion: reduce) {
-      [data-cc-orbit] rect { animation: none; stroke-dasharray: none; opacity: 0.6; }
+      [data-cc-orbit] rect { stroke-dasharray: none; opacity: 0.6; }
     }
     [data-cc-section] [data-sidebar-group-label] {
-      min-height: 32px; margin-top: 0 !important; padding-block: 0 !important; padding-inline-start: 3px; border-radius: 9px;
+      min-height: 32px; margin-block: 0 !important; padding-block: 0 !important; padding-inline-start: var(--cc-padding); border-radius: var(--cc-inner-radius);
     }
     [data-cc-section] [data-sidebar-group-label]:hover { background: var(--df-hover); }
 
@@ -84,22 +87,26 @@ function claudeColors({ config, icons }) {
     [data-cc-title]::after { content: attr(data-cc-name); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     [data-cc-badge] {
       display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
-      width: 22px; height: 22px; border-radius: 6px; cursor: pointer;
+      width: 22px; height: 22px; border-radius: calc(var(--cc-inner-radius) - var(--cc-padding)); cursor: pointer;
       color: var(--cc-text);
       background: color-mix(in srgb, var(--cc-accent) 26%, transparent);
     }
     [data-cc-badge]:hover { background: color-mix(in srgb, var(--cc-accent) 40%, transparent); }
     [data-cc-badge] svg { width: 14px; height: 14px; }
 
-    [data-cc-section] [data-row] { border-radius: 8px !important; }
+    /* The app spaces rows with a margin below each; above each keeps the last row flush with the block's padding. */
+    [data-cc-section] [data-row] { border-radius: var(--cc-inner-radius) !important; margin: 2px 0 0 !important; }
     [data-cc-section] [data-row-main-button] { color: var(--cc-soft-text) !important; font-weight: 400 !important; }
     [data-cc-section] [data-row][data-selected] [data-row-main-button],
     [data-cc-section] [data-row-main-button]:hover { color: var(--cc-text) !important; }
-    [data-cc-section]:not([data-cc-expanded]) [data-cc-extra] { display: none !important; }
+    /* Pure CSS, so rows the app adds while unfolding a block are hidden before they're painted. */
+    [data-cc-section]:not([data-cc-expanded]) [data-cc-rows] > :nth-child(n + ${VISIBLE_ROWS + 1}):not([data-cc-more]) {
+      display: none !important;
+    }
 
     [data-cc-more] {
       all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 6px; width: 100%;
-      height: 26px; padding: 0 var(--df-row-px, 10px); border-radius: 8px; cursor: pointer;
+      height: 26px; margin-top: 2px; padding: 0 var(--df-row-px, 10px); border-radius: var(--cc-inner-radius); cursor: pointer;
       font-size: 12px; color: var(--cc-soft-text); opacity: 0.75;
     }
     [data-cc-more]:hover { opacity: 1; background: var(--df-hover); }
@@ -181,8 +188,8 @@ function claudeColors({ config, icons }) {
 
   // Items are the row list's children: a session, or a session followed by its
   // sub-sessions. They come sorted by recency, so the first VISIBLE_ROWS are the latest.
-  // The app's own "Show more" loads sessions it hasn't rendered yet, so it stays
-  // available once the section is expanded.
+  // The app's own "Show more" comes after the items: it loads sessions it hasn't
+  // rendered yet, so the CSS hides it along with the extra items until the block expands.
   function limitRows(section, label) {
     const rowList = [...section.children].find((child) => child.querySelector('[data-row-key^="code:"]'));
     let more = section.querySelector("[data-cc-more]");
@@ -190,12 +197,11 @@ function claudeColors({ config, icons }) {
       more?.remove();
       return;
     }
+    rowList.setAttribute("data-cc-rows", "");
     const nativeMore = rowList.querySelector(':scope > [data-row-key^="label:showmore:"]');
     const items = [...rowList.children].filter((item) => item !== nativeMore && item !== more);
-    items.forEach((item, index) => item.toggleAttribute("data-cc-extra", index >= VISIBLE_ROWS));
     const unrendered = Number(nativeMore?.querySelector("[aria-label]")?.getAttribute("aria-label").match(/\d+/)?.[0] || 0);
     const hiddenCount = Math.max(items.length - VISIBLE_ROWS, 0);
-    nativeMore?.toggleAttribute("data-cc-extra", hiddenCount > 0);
     if (hiddenCount === 0) {
       more?.remove();
       return;
@@ -230,42 +236,51 @@ function claudeColors({ config, icons }) {
       section.style.setProperty("--cc-accent", project?.color || DEFAULT_COLOR);
       decorateTitle(section, project, label);
       limitRows(section, label);
-      updateOrbit(section);
+      updateOrbit(section, label);
     }
   }
 
-  // The duration follows the block's perimeter, so the light moves at ORBIT_SPEED on any block.
-  function sizeOrbit(section) {
-    const width = section.offsetWidth - 1.5;
-    const height = section.offsetHeight - 1.5;
-    const perimeter = 2 * (width + height) - (8 - 2 * Math.PI) * ORBIT_RADIUS;
-    if (Math.abs(perimeter - (Number(section.dataset.ccPerimeter) || 0)) < 1) return;
-    section.dataset.ccPerimeter = String(perimeter);
-    section.style.setProperty("--cc-perimeter", `${perimeter}px`);
-    section.style.setProperty("--cc-duration", `${perimeter / ORBIT_SPEED}s`);
+  // Each light keeps its place as a fraction of the lap, per section. When a block
+  // grows or shrinks, the light stays at the same relative spot instead of jumping,
+  // and a block the app re-renders picks up where its light was.
+  const orbitPhases = new Map();
+  const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+  let orbitFrame = null;
+  let lastFrameTime = null;
+
+  function stepOrbits(now) {
+    const elapsed = lastFrameTime === null ? 0 : Math.min((now - lastFrameTime) / 1000, 0.1);
+    lastFrameTime = now;
+    const orbits = [...document.querySelectorAll("[data-cc-orbit]")].map((orbit) => ({
+      orbit,
+      perimeter: 2 * (orbit.parentElement.offsetWidth + orbit.parentElement.offsetHeight - 3) - (8 - 2 * Math.PI) * ORBIT_RADIUS,
+    }));
+    for (const { orbit, perimeter } of orbits) {
+      const phase = ((orbitPhases.get(orbit.dataset.key) || 0) + (ORBIT_SPEED * elapsed) / perimeter) % 1;
+      orbitPhases.set(orbit.dataset.key, phase);
+      orbit.firstChild.style.strokeDasharray = `${ORBIT_DASH} ${perimeter - ORBIT_DASH}`;
+      orbit.firstChild.style.strokeDashoffset = String(-phase * perimeter);
+    }
+    orbitFrame = orbits.length ? requestAnimationFrame(stepOrbits) : null;
+    if (!orbitFrame) lastFrameTime = null;
   }
 
-  const resizeObserver = new ResizeObserver((entries) => entries.forEach((entry) => sizeOrbit(entry.target)));
-
-  function updateOrbit(section) {
+  function updateOrbit(section, label) {
     const isRunning = Boolean(section.querySelector('[data-attention="working"]'));
     let orbit = section.querySelector(":scope > [data-cc-orbit]");
     if (!isRunning) {
-      if (orbit) {
-        orbit.remove();
-        resizeObserver.unobserve(section);
-      }
+      orbit?.remove();
       return;
     }
     if (!orbit) {
       orbit = document.createElementNS("http://www.w3.org/2000/svg", "svg");
       orbit.setAttribute("data-cc-orbit", "");
       orbit.setAttribute("aria-hidden", "true");
+      orbit.dataset.key = keyOf(label);
       orbit.appendChild(document.createElementNS("http://www.w3.org/2000/svg", "rect"));
       section.appendChild(orbit);
-      resizeObserver.observe(section);
     }
-    sizeOrbit(section);
+    if (!orbitFrame && !reducedMotion.matches) orbitFrame = requestAnimationFrame(stepOrbits);
   }
 
   function closePicker() {
@@ -356,23 +371,22 @@ function claudeColors({ config, icons }) {
     document.addEventListener("mousedown", onOutsideClick, true);
   }
 
+  // One apply per frame, before it's painted, so nothing the app adds shows undecorated.
   let pending = null;
   const observer = new MutationObserver(() => {
-    if (pending) return;
-    pending = setTimeout(() => {
+    pending ??= requestAnimationFrame(() => {
       pending = null;
       apply();
-    }, 150);
+    });
   });
 
   function destroy() {
     observer.disconnect();
-    resizeObserver.disconnect();
-    clearTimeout(pending);
+    cancelAnimationFrame(pending);
+    cancelAnimationFrame(orbitFrame);
     closePicker();
     style.remove();
     document.querySelectorAll("[data-cc-badge], [data-cc-more], [data-cc-orbit]").forEach((el) => el.remove());
-    document.querySelectorAll("[data-cc-perimeter]").forEach((el) => el.removeAttribute("data-cc-perimeter"));
     for (const attribute of ATTRIBUTES) {
       document.querySelectorAll(`[${attribute}]`).forEach((el) => el.removeAttribute(attribute));
     }
