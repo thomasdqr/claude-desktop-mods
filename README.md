@@ -2,6 +2,10 @@
 
 Color and icon each project in the Claude desktop app's Code sidebar, like tab groups in Arc.
 
+<p align="center">
+  <img src="docs/sidebar.png" alt="The Claude sidebar with each project as a colored block with its own icon" width="360">
+</p>
+
 - Each project becomes a block tinted with its own color.
 - Click a block's icon to pick one of 2,000+ [Lucide](https://lucide.dev) icons and a color.
 - Each block shows its 5 latest sessions, with "Show more" for the rest.
