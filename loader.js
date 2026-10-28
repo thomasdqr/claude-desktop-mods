@@ -128,6 +128,7 @@ app.on("web-contents-created", (_event, webContents) => {
 });
 
 app.whenReady().then(() => {
+  app.dock?.setIcon(path.join(process.resourcesPath, "claude-colors-icon.png"));
   if (fs.existsSync(DUMP_REQUEST)) setTimeout(dump, 15000);
   let pending = null;
   setInterval(checkWhileRunning, 30 * 1000);

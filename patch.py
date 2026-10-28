@@ -21,6 +21,7 @@ DST = os.path.expanduser("~/Applications/Claude Colors.app")
 HERE = os.path.dirname(os.path.abspath(__file__))
 BLOCK_SIZE = 4 * 1024 * 1024
 LOADER_NAME = "claude-colors.js"
+DOCK_ICON = "claude-colors-icon.png"
 # macOS picks the icon and the app to open for a notification by bundle id, so the
 # copy needs its own. The data folder follows the app's product name, so it's shared.
 BUNDLE_ID = "local.claude-colors"
@@ -125,7 +126,9 @@ def recolor_icon(app_path):
         for name in os.listdir(iconset):
             recolor_image(os.path.join(iconset, name))
         subprocess.run(["iconutil", "-c", "icns", iconset, "-o", icns], check=True)
-    # Without this key macOS reads the original icon from Assets.car instead.
+        # macOS 26 still shows Assets.car's icon in the Dock, so loader.js sets this one at launch.
+        shutil.copy(os.path.join(iconset, "icon_512x512@2x.png"), f"{app_path}/Contents/Resources/{DOCK_ICON}")
+    # Without this key Finder reads the original icon from Assets.car instead.
     subprocess.run(["/usr/libexec/PlistBuddy", "-c", "Delete :CFBundleIconName", f"{app_path}/Contents/Info.plist"], check=True)
 
 

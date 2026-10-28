@@ -1,5 +1,6 @@
-// Runs inside the claude.ai page of the desktop app. loader.js runs it again
-// whenever this file or config.json changes, so edits apply live.
+// Runs inside the claude.ai page of the desktop app, either from the DevTools
+// snippet (snippet.py) or from loader.js in a patched copy (patch.py).
+// onSave persists a picker choice; without it, the choice is logged for loader.js.
 //
 // Sidebar markup it relies on (Claude 3.6556.2):
 //   .df-sortable-section                     the wrapper the user drags to reorder
@@ -11,7 +12,7 @@
 //         [data-row-main-button]             the row's text
 // Rows read the app's own --df-row-* and --df-hover / --df-selected variables,
 // so each section overrides those instead of restyling rows one by one.
-function claudeColors({ config, icons }) {
+function claudeColors({ config, icons, onSave }) {
   window.__claudeColors?.destroy();
 
   const VISIBLE_ROWS = 5;
@@ -151,7 +152,8 @@ function claudeColors({ config, icons }) {
   function save(name, project) {
     if (project) projects.set(keyOf(name), { ...project, name });
     else projects.delete(keyOf(name));
-    console.log(SAVE_PREFIX + JSON.stringify({ name, project }));
+    if (onSave) onSave(name, project);
+    else console.log(SAVE_PREFIX + JSON.stringify({ name, project }));
     apply();
   }
 
