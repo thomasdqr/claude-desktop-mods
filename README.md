@@ -27,7 +27,8 @@ Color and icon each project in the Claude desktop app's Code sidebar, like tab g
 **1. Get the code and build the launcher.** In Terminal:
 
 ```bash
-git clone https://github.com/thomasdqr/claude-colors ~/Documents/GitHub/claude-colors
+git clone https://github.com/thomasdqr/claude-colors ~/Documents/GitHub/claude-colors \
+  || git -C ~/Documents/GitHub/claude-colors pull
 python3 ~/Documents/GitHub/claude-colors/launcher/build.py
 open ~/Applications/"Claude Colors.app"
 ```
@@ -86,6 +87,9 @@ launch, click in the sidebar and press **⌥⌘I**, then **⌘P**, type `!claude
 
 ## Troubleshooting
 
+- **The launcher doesn't compile** (for example "plugin for module 'SwiftUIMacros' not
+  found"). Update to the latest version with `git -C ~/Documents/GitHub/claude-colors pull`
+  and build again. If it still fails, install Xcode from the App Store.
 - **Accessibility stays "Not allowed".** In System Settings, select Claude Colors, remove it
   with −, add `~/Applications/Claude Colors.app` back with +, then click **Relaunch** in the
   launcher.

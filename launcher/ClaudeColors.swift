@@ -145,6 +145,11 @@ final class Model: ObservableObject {
     @Published var accessibilityAllowed = Automation.isAllowed
     @Published var openAtLogin = SMAppService.mainApp.status == .enabled
     @Published var busy: String?
+    // View state lives here rather than in SwiftUI's @State: on some Macs @State is a macro
+    // whose plugin only ships with Xcode, and the launcher must build with the command line tools.
+    /// The state the user asked for, waiting for them to confirm the Claude restart.
+    @Published var pendingEnabled: Bool?
+    @Published var skippedPermission = false
     @Published var message: String?
     @Published var autoApply = UserDefaults.standard.object(forKey: "autoApply") as? Bool ?? true {
         didSet { UserDefaults.standard.set(autoApply, forKey: "autoApply") }
@@ -413,14 +418,11 @@ struct ClayButtonStyle: ButtonStyle {
 
 struct ContentView: View {
     @EnvironmentObject var model: Model
-    /// The state the user asked for, waiting for them to confirm the Claude restart.
-    @State private var pendingEnabled: Bool?
-    @State private var skippedPermission = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             header
-            if model.accessibilityAllowed || skippedPermission {
+            if model.accessibilityAllowed || model.skippedPermission {
                 controls
             } else {
                 permissionStep
@@ -434,15 +436,15 @@ struct ContentView: View {
         .frame(width: 400)
         .background(Color.canvas)
         .alert(
-            pendingEnabled == true ? "Turn on Claude Colors?" : "Turn off Claude Colors?",
-            isPresented: Binding(get: { pendingEnabled != nil }, set: { if !$0 { pendingEnabled = nil } })
+            model.pendingEnabled == true ? "Turn on Claude Colors?" : "Turn off Claude Colors?",
+            isPresented: Binding(get: { model.pendingEnabled != nil }, set: { if !$0 { model.pendingEnabled = nil } })
         ) {
             Button("Restart Claude") {
-                guard let on = pendingEnabled else { return }
-                pendingEnabled = nil
+                guard let on = model.pendingEnabled else { return }
+                model.pendingEnabled = nil
                 Task { await model.setEnabled(on) }
             }
-            Button("Cancel", role: .cancel) { pendingEnabled = nil }
+            Button("Cancel", role: .cancel) { model.pendingEnabled = nil }
         } message: {
             Text("Claude quits and reopens to apply the change.")
         }
@@ -478,7 +480,7 @@ struct ContentView: View {
                 }
                 .padding(16)
             }
-            Button("Skip for now") { skippedPermission = true }
+            Button("Skip for now") { model.skippedPermission = true }
                 .buttonStyle(.plain)
                 .font(.system(size: 11.5))
                 .foregroundStyle(.secondary)
@@ -504,7 +506,7 @@ struct ContentView: View {
                     detail: model.enabled
                         ? "On. Developer Mode and the snippet are installed."
                         : "Off. Turning it on restarts Claude once.",
-                    isOn: Binding(get: { model.enabled }, set: { pendingEnabled = $0 }),
+                    isOn: Binding(get: { model.enabled }, set: { model.pendingEnabled = $0 }),
                     disabled: model.busy != nil
                 )
             }

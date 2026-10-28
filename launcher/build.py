@@ -5,6 +5,7 @@ Needs the Xcode command line tools (swiftc). The app icon is Claude's, recolored
 rainbow, which needs Pillow; without it the app keeps a plain icon.
 """
 import os
+import platform
 import plistlib
 import shutil
 import subprocess
@@ -40,17 +41,23 @@ def main():
     if running.returncode == 0:
         sys.exit("Claude Colors is running. Quit it from its menu bar icon first.")
 
+    # Compile before touching the installed app, so a failed build doesn't leave a broken one.
+    binary = os.path.join(tempfile.mkdtemp(), EXECUTABLE)
+    compiled = subprocess.run(
+        ["swiftc", "-O", "-parse-as-library", "-swift-version", "5",
+         "-target", f"{platform.machine()}-apple-macos14.0",
+         os.path.join(HERE, "ClaudeColors.swift"), "-o", binary],
+    )
+    if compiled.returncode != 0:
+        sys.exit("\nThe launcher didn't compile (errors above). Installing Xcode from the App Store, "
+                 "or updating the command line tools with `xcode-select --install`, usually fixes it.")
+
     shutil.rmtree(APP, ignore_errors=True)
     macos = os.path.join(APP, "Contents", "MacOS")
     resources = os.path.join(APP, "Contents", "Resources")
     os.makedirs(macos)
     os.makedirs(resources)
-
-    subprocess.run(
-        ["swiftc", "-O", "-parse-as-library", "-swift-version", "5", "-target", "arm64-apple-macos14.0",
-         os.path.join(HERE, "ClaudeColors.swift"), "-o", os.path.join(macos, EXECUTABLE)],
-        check=True,
-    )
+    shutil.move(binary, os.path.join(macos, EXECUTABLE))
     info = {
         "CFBundleName": "Claude Colors",
         "CFBundleDisplayName": "Claude Colors",
