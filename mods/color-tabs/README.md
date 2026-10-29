@@ -4,7 +4,7 @@ Turns each project in Claude's Code sidebar into a colored block with its own ic
 tab groups in Arc.
 
 <p align="center">
-  <img src="../../docs/sidebar.png" alt="Claude's sidebar with Color Tabs: each project in a colored block with its own icon" width="360">
+  <img src="screenshot.png" alt="Claude's sidebar with Color Tabs: each project in a colored block with its own icon" width="360">
 </p>
 
 - **Icon and color per project.** Click a block's icon to pick from 2,000+

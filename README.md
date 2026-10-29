@@ -4,9 +4,7 @@ Mods to customize and extend the Claude desktop app, with a small Mac app to ins
 and update them. CDM for short.
 
 <p align="center">
-  <img src="docs/sidebar.png" alt="The Claude sidebar with the color-tabs mod: each project as a colored block with its own icon" width="300">
-  &nbsp;&nbsp;
-  <img src="docs/app-installed.png" alt="The Claude Desktop Mods app: Color Tabs installed, with its settings open" width="480">
+  <img src="docs/app-installed.png" alt="The Claude Desktop Mods app: Color Tabs installed, with its settings open" width="560">
 </p>
 
 > **Unofficial.** Not made, supported, or endorsed by Anthropic. CDM runs through Claude's
@@ -14,9 +12,9 @@ and update them. CDM for short.
 
 ## Mods
 
-| Mod | What it does |
-|---|---|
-| [Color Tabs](mods/color-tabs) | Turns each project in the sidebar into a colored block with its own icon, like tab groups in Arc. Shows the latest sessions per block, and which block has a session running. |
+| Mod | What it does | |
+|---|---|---|
+| [Color Tabs](mods/color-tabs) | Turns each project in the sidebar into a colored block with its own icon, like tab groups in Arc. Shows the latest sessions per block, and which block has a session running. | <img src="mods/color-tabs/preview.png" alt="Color Tabs in Claude's sidebar" width="200"> |
 
 Want to add yours? See [Writing a mod](CONTRIBUTING.md).
 
