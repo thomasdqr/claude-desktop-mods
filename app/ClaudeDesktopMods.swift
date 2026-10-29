@@ -14,6 +14,7 @@ let claudeData = FileManager.default.homeDirectoryForCurrentUser
     .appendingPathComponent("Library/Application Support/Claude")
 // Claude's page needs a moment after its window shows before DevTools can reach it.
 let pageLoadDelay: Duration = .seconds(3)
+let contributingGuide = URL(string: "https://github.com/thomasdqr/claude-desktop-mods/blob/main/CONTRIBUTING.md")!
 
 // MARK: - Palette
 
@@ -243,6 +244,13 @@ final class Model: ObservableObject {
     @Published var loadedVersions: [String: String] = [:]
     /// Mods with a higher version upstream, and that version.
     @Published var updates: [String: String] = [:]
+    /// What each update changes: the subject of the commit that raised its version.
+    @Published var updateNotes: [String: String] = [:]
+    @Published var checkingForUpdates = false
+    @Published var lastChecked: Date?
+    @Published var autoCheck = UserDefaults.standard.object(forKey: "autoCheck") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(autoCheck, forKey: "autoCheck") }
+    }
     @Published var accessibilityAllowed = Automation.isAllowed
     @Published var openAtLogin = SMAppService.mainApp.status == .enabled
     @Published var busy: String?
@@ -269,9 +277,11 @@ final class Model: ObservableObject {
         Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
         }
-        Task { await checkForUpdates() }
-        Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
-            Task { @MainActor in await self?.checkForUpdates() }
+        if autoCheck { Task { await checkForUpdates() } }
+        Timer.scheduledTimer(withTimeInterval: 6 * 3600, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                if self?.autoCheck == true { await self?.checkForUpdates() }
+            }
         }
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didLaunchApplicationNotification, object: nil, queue: .main
@@ -406,17 +416,34 @@ final class Model: ObservableObject {
     // MARK: Updates
 
     /// Compares each mod's version with the one on the repository's upstream branch.
+    /// Only looks: updating is always the user's click.
     func checkForUpdates() async {
-        guard await git("fetch", "--quiet") != nil else { return }
-        var found: [String: String] = [:]
+        checkingForUpdates = true
+        defer { checkingForUpdates = false }
+        guard await git("fetch", "--quiet") != nil else {
+            message = "Couldn't check for updates. Are you online?"
+            return
+        }
+        var found: [String: String] = [:], notes: [String: String] = [:]
         for mod in mods {
-            guard let text = await git("show", "@{u}:mods/\(mod.id)/manifest.json"),
+            let manifest = "mods/\(mod.id)/manifest.json"
+            guard let text = await git("show", "@{u}:\(manifest)"),
                   let json = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any],
                   let version = json["version"] as? String,
                   version.compare(mod.version, options: .numeric) == .orderedDescending else { continue }
             found[mod.id] = version
+            // Optional: a commit titled "color-tabs 1.2.0: longer light (#1)" gives "longer light";
+            // any other title gives no note.
+            let subject = await git("log", "-1", "--format=%s", "@{u}", "--", manifest) ?? ""
+            let prefix = "\(mod.id) \(version): "
+            if subject.hasPrefix(prefix) {
+                notes[mod.id] = String(subject.dropFirst(prefix.count))
+                    .replacingOccurrences(of: #"\s*\(#\d+\)$"#, with: "", options: .regularExpression)
+            }
         }
         updates = found
+        updateNotes = notes
+        lastChecked = Date()
     }
 
     /// Pulls the repository: every mod's update and the catalog's new mods at once.
@@ -432,6 +459,7 @@ final class Model: ObservableObject {
         }
         loadMods()
         updates = [:]
+        updateNotes = [:]
         if let appChanges = await git("diff", "--name-only", before, "HEAD", "--", "app"), !appChanges.isEmpty {
             message = "The app has an update too: run app/build.py to get it."
         }
@@ -695,6 +723,8 @@ struct ModIcon: View {
 /// A mod's icon, name, version and description: the start of its row in every list.
 struct ModTitle: View {
     let mod: ModInfo
+    /// A newer version, shown after the current one.
+    var update: String?
     var body: some View {
         HStack(spacing: 12) {
             ModIcon(mod: mod)
@@ -702,6 +732,9 @@ struct ModTitle: View {
                 HStack(spacing: 5) {
                     Text(mod.name).font(.system(size: 13.5, weight: .semibold))
                     Text(mod.version).font(.system(size: 12)).foregroundStyle(Color.muted)
+                    if let update {
+                        Text("→ \(update)").font(.system(size: 12, weight: .medium)).foregroundStyle(Color.accent)
+                    }
                 }
                 Text(mod.description).font(.system(size: 12)).foregroundStyle(Color.muted)
                     .fixedSize(horizontal: false, vertical: true)
@@ -753,10 +786,10 @@ struct InstalledRow: View {
         VStack(spacing: 0) {
             ListRow {
                 HStack(spacing: 12) {
-                    ModTitle(mod: mod)
+                    ModTitle(mod: mod, update: model.updates[mod.id])
                     Spacer(minLength: 8)
-                    if let version = model.updates[mod.id] {
-                        Button("Update to \(version)") { Task { await model.update() } }
+                    if model.updates[mod.id] != nil {
+                        Button("Update") { Task { await model.update() } }
                             .buttonStyle(AppButtonStyle())
                             .disabled(model.busy != nil)
                     }
@@ -903,6 +936,7 @@ struct ContentView: View {
                 .frame(width: 430)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.canvas)
         .alert(
             "Turn off Claude Desktop Mods?",
@@ -943,7 +977,10 @@ struct ContentView: View {
                         Image(systemName: tab.symbol).frame(width: 16)
                         Text(tab.rawValue)
                         Spacer()
-                        if tab == .installed, !model.installed.isEmpty {
+                        if tab == .installed, !model.updates.isEmpty {
+                            Badge(text: model.updates.count == 1 ? "1 update" : "\(model.updates.count) updates",
+                                  color: .accent)
+                        } else if tab == .installed, !model.installed.isEmpty {
                             Text("\(model.installed.count)").foregroundStyle(Color.muted)
                         }
                     }
@@ -988,14 +1025,28 @@ struct ContentView: View {
             Text(model.tab.rawValue).font(.system(size: 15, weight: .semibold))
             Spacer()
             if model.tab == .installed, !model.installed.isEmpty {
-                Button("Browse catalog") { model.tab = .catalog }
-                    .buttonStyle(AppButtonStyle())
+                Text(checkedText).font(.system(size: 12)).foregroundStyle(Color.muted)
+                Button {
+                    Task { await model.checkForUpdates() }
+                } label: {
+                    Label("Check for updates", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(AppButtonStyle())
+                .disabled(model.checkingForUpdates || model.busy != nil)
             }
         }
         .frame(height: 30)
         .padding(.horizontal, 20)
         .padding(.top, 30)
         .padding(.bottom, 12)
+    }
+
+    private var checkedText: String {
+        if model.checkingForUpdates { return "Checking…" }
+        guard let lastChecked = model.lastChecked else { return "" }
+        let ago = Date().timeIntervalSince(lastChecked) < 60 ? "just now"
+            : RelativeDateTimeFormatter().localizedString(for: lastChecked, relativeTo: Date())
+        return "Checked \(ago)"
     }
 
     @ViewBuilder private var page: some View {
@@ -1021,8 +1072,38 @@ struct ContentView: View {
             .padding(.top, 70)
         } else {
             VStack(spacing: 0) {
+                if !model.updates.isEmpty { updatesBanner }
                 ForEach(model.installed) { InstalledRow(mod: $0) }
             }
+        }
+    }
+
+    private var updatesBanner: some View {
+        let updated = model.mods.filter { model.updates[$0.id] != nil }
+        return VStack(spacing: 0) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "sparkles").font(.system(size: 15)).padding(.top, 1)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(updated.count == 1 ? "1 update available" : "\(updated.count) updates available")
+                        .font(.system(size: 13, weight: .semibold))
+                    ForEach(updated) { mod in
+                        let note = model.updateNotes[mod.id].map { ": \($0)" } ?? ""
+                        Text("\(mod.name) \(model.updates[mod.id] ?? "")\(note)")
+                            .font(.system(size: 12))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Spacer(minLength: 8)
+                Button("Update all") { Task { await model.update() } }
+                    .buttonStyle(AppButtonStyle(prominent: true))
+                    .disabled(model.busy != nil)
+            }
+            .foregroundStyle(Color.accent)
+            .padding(12)
+            .background(Color.accentWash, in: RoundedRectangle(cornerRadius: 10))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 12)
+            Divider().overlay(Color.hairline)
         }
     }
 
@@ -1042,10 +1123,21 @@ struct ContentView: View {
                     }
                 }
             }
-            Text("Each mod is a folder in mods/. CONTRIBUTING.md explains how to write your own and add it here.")
-                .font(.system(size: 12))
-                .foregroundStyle(Color.muted)
-                .padding(20)
+            HStack(spacing: 10) {
+                Image(systemName: "hammer").foregroundStyle(Color.muted)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Make your own mod").font(.system(size: 13, weight: .medium))
+                    Text("Start from the template, try it in Claude, then propose it for this catalog.")
+                        .font(.system(size: 12)).foregroundStyle(Color.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                Link(destination: contributingGuide) {
+                    Label("Read the guide", systemImage: "arrow.up.right")
+                }
+                .buttonStyle(AppButtonStyle())
+            }
+            .padding(20)
         }
     }
 
@@ -1055,6 +1147,11 @@ struct ContentView: View {
                 title: "Run mods when Claude opens",
                 detail: "Runs them a few seconds after Claude starts.",
                 isOn: $model.autoApply
+            )
+            ToggleRow(
+                title: "Check for updates automatically",
+                detail: "At launch, then every 6 hours. Updating is always your click.",
+                isOn: $model.autoCheck
             )
             ToggleRow(
                 title: "Open at login",
@@ -1213,6 +1310,13 @@ struct MenuContent: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
+        if !model.updates.isEmpty {
+            Button(model.updates.count == 1 ? "Install 1 update" : "Install \(model.updates.count) updates") {
+                Task { await model.update() }
+            }
+            Divider()
+        }
+        Button("Check for updates") { Task { await model.checkForUpdates() } }
         Button("Open Claude Desktop Mods…") {
             openWindow(id: "main")
             NSApp.activate(ignoringOtherApps: true)

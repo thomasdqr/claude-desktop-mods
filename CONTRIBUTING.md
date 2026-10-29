@@ -120,5 +120,10 @@ Raise `version` in `manifest.json` with every change: `1.1.0` → `1.2.0` for so
 `1.2.0` → `1.2.1` for a fix. CI refuses a changed mod with the same version, because the app
 compares versions to tell users an update is ready.
 
-Once merged, users see **Update** in the app's Installed page. A click pulls the repository,
-then **Restart Claude** loads the new version.
+Once merged, the app's Installed page shows the update in a blue banner, with **Update all**.
+A click pulls the repository, then **Restart Claude** loads the new version.
+
+To tell users what changed, title the commit that raises the version
+`my-mod 1.2.0: what changed`. Pull requests here are squashed, so the pull request's title
+counts. The banner then reads "My Mod 1.2.0: what changed". It's
+optional: with any other title, the banner shows the name and version only.

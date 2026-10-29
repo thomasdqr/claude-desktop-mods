@@ -87,7 +87,7 @@ reopens it with your changes.
 
 ## Updates
 
-The app checks for new versions when it opens, then every hour. **Update to …** pulls the
+The app checks for new versions when it opens, then every 6 hours. **Update to …** pulls the
 repository, which brings every mod's update and the catalog's new mods at once. Then
 **Restart Claude** loads them.
 
