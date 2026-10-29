@@ -60,6 +60,68 @@ function activate(api) {
       @media (prefers-reduced-motion: no-preference) {
         [data-ct-running] [data-ct-badge]::after { animation: ct-ping 1.4s ease-out infinite; }
       }`,
+    // A band of light sweeps across the block, left to right.
+    shimmer: `
+      @keyframes ct-shimmer { from { background-position: 150% 0, 0 0; } to { background-position: -50% 0, 0 0; } }
+      [data-ct-section][data-ct-running] {
+        background:
+          linear-gradient(105deg, transparent 35%, color-mix(in srgb, var(--ct-accent) 24%, transparent) 50%, transparent 65%)
+            150% 0 / 250% 100% no-repeat,
+          color-mix(in srgb, var(--ct-accent) 11%, transparent);
+      }
+      @media (prefers-reduced-motion: no-preference) {
+        [data-ct-section][data-ct-running] { animation: ct-shimmer 2.2s linear infinite; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        [data-ct-section][data-ct-running] { background: color-mix(in srgb, var(--ct-accent) 20%, transparent); }
+      }`,
+    breathe: `
+      @keyframes ct-breathe { 50% { background-color: color-mix(in srgb, var(--ct-accent) 24%, transparent); } }
+      @media (prefers-reduced-motion: no-preference) {
+        [data-ct-section][data-ct-running] { animation: ct-breathe 2.8s ease-in-out infinite; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        [data-ct-section][data-ct-running] { background: color-mix(in srgb, var(--ct-accent) 20%, transparent); }
+      }`,
+    // A short line slides along the bottom edge, like an indeterminate progress bar.
+    bar: `
+      @keyframes ct-bar { from { background-position: -70% 100%, 0 0; } to { background-position: 170% 100%, 0 0; } }
+      [data-ct-section][data-ct-running] {
+        background:
+          linear-gradient(90deg, transparent, var(--ct-accent), transparent) -70% 100% / 40% 2px no-repeat,
+          color-mix(in srgb, var(--ct-accent) 11%, transparent);
+      }
+      @media (prefers-reduced-motion: no-preference) {
+        [data-ct-section][data-ct-running] { animation: ct-bar 1.6s ease-in-out infinite; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        [data-ct-section][data-ct-running] {
+          background:
+            linear-gradient(var(--ct-accent), var(--ct-accent)) 0 100% / 100% 2px no-repeat,
+            color-mix(in srgb, var(--ct-accent) 11%, transparent);
+        }
+      }`,
+    // An arc with a fading tail runs around a ring the badge's shape: a conic gradient, turned
+    // by animating its angle and masked to the ring, follows the corners where a border can't.
+    spinner: `
+      @property --ct-spin { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+      @keyframes ct-spin { to { --ct-spin: 1turn; } }
+      [data-ct-running] [data-ct-badge] { position: relative; }
+      [data-ct-running] [data-ct-badge]::after {
+        content: ""; position: absolute; inset: -3px; padding: 1.5px; pointer-events: none;
+        border-radius: calc(var(--ct-inner-radius) - var(--ct-padding) + 3px);
+        background: conic-gradient(from var(--ct-spin),
+          color-mix(in srgb, var(--ct-accent) 18%, transparent), var(--ct-accent) 35%,
+          color-mix(in srgb, var(--ct-accent) 18%, transparent) 35%);
+        mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+        mask-composite: exclude;
+      }
+      @media (prefers-reduced-motion: no-preference) {
+        [data-ct-running] [data-ct-badge]::after { animation: ct-spin 1.1s linear infinite; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        [data-ct-running] [data-ct-badge]::after { background: color-mix(in srgb, var(--ct-accent) 60%, transparent); }
+      }`,
   };
 
   api.css(`

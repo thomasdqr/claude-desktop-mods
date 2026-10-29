@@ -1,7 +1,7 @@
 {
   "id": "color-tabs",
   "name": "Color Tabs",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Turns each project in the sidebar into a colored block with its own icon.",
   "author": "thomasdqr",
   "icon": { "symbol": "swatchpalette.fill", "color": "#F0609E" },
@@ -19,6 +19,10 @@
       "options": [
         { "value": "orbit", "label": "Moving light" },
         { "value": "pulse", "label": "Pulsing border" },
+        { "value": "shimmer", "label": "Shimmer" },
+        { "value": "breathe", "label": "Breathing color" },
+        { "value": "bar", "label": "Loading bar" },
+        { "value": "spinner", "label": "Spinner on the icon" },
         { "value": "dot", "label": "Dot on the icon" },
         { "value": "none", "label": "None" }
       ],
