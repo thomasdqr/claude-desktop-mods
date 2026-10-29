@@ -1,0 +1,19 @@
+{
+  "id": "my-mod",
+  "name": "My Mod",
+  "version": "0.1.0",
+  "description": "One sentence on what it changes in Claude.",
+  "author": "your-github-name",
+  "icon": { "symbol": "sparkles", "color": "#4F86F7" },
+  "main": "main.js",
+  "settings": [
+    {
+      "key": "bold",
+      "type": "toggle",
+      "label": "Bold titles",
+      "description": "Makes the sidebar's section titles bold.",
+      "default": true
+    }
+  ],
+  "testedOn": "Claude 4.29"
+}

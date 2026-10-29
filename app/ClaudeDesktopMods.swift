@@ -239,6 +239,10 @@ final class Model: ObservableObject {
     @Published var claudeRunning = false
     @Published var developerMode = false
     @Published var snippetInstalled = false
+    /// Each mod's version in the snippet Claude has, from the bundle's "// Mods:" line.
+    @Published var loadedVersions: [String: String] = [:]
+    /// Mods with a higher version upstream, and that version.
+    @Published var updates: [String: String] = [:]
     @Published var accessibilityAllowed = Automation.isAllowed
     @Published var openAtLogin = SMAppService.mainApp.status == .enabled
     @Published var busy: String?
@@ -265,6 +269,10 @@ final class Model: ObservableObject {
         Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
         }
+        Task { await checkForUpdates() }
+        Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
+            Task { @MainActor in await self?.checkForUpdates() }
+        }
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didLaunchApplicationNotification, object: nil, queue: .main
         ) { [weak self] note in
@@ -280,7 +288,14 @@ final class Model: ObservableObject {
         openAtLogin = SMAppService.mainApp.status == .enabled
         let developerSettings = readJSON(claudeData.appendingPathComponent("developer_settings.json"))
         developerMode = developerSettings?["allowDevTools"] as? Bool ?? false
-        snippetInstalled = installedSnippetNames().contains("cdm")
+        let snippet = installedSnippets().first { $0["name"] as? String == "cdm" }
+        snippetInstalled = snippet != nil
+        let bundle = snippet?["content"] as? String ?? ""
+        let modsLine = bundle.split(separator: "\n").first { $0.hasPrefix("// Mods: ") } ?? ""
+        loadedVersions = Dictionary(modsLine.dropFirst(9).split(separator: ", ").compactMap { item in
+            let parts = item.split(separator: "@")
+            return parts.count == 2 ? (String(parts[0]), String(parts[1])) : nil
+        }, uniquingKeysWith: { first, _ in first })
     }
 
     private func readJSON(_ url: URL) -> [String: Any]? {
@@ -288,12 +303,11 @@ final class Model: ObservableObject {
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     }
 
-    private func installedSnippetNames() -> [String] {
+    private func installedSnippets() -> [[String: Any]] {
         let preferences = readJSON(claudeData.appendingPathComponent("Preferences"))
         let devtools = (preferences?["electron"] as? [String: Any])?["devtools"] as? [String: Any]
         let snippets = (devtools?["preferences"] as? [String: Any])?["script-snippets"] as? String ?? "[]"
-        let list = (try? JSONSerialization.jsonObject(with: Data(snippets.utf8))) as? [[String: Any]] ?? []
-        return list.compactMap { $0["name"] as? String }
+        return (try? JSONSerialization.jsonObject(with: Data(snippets.utf8))) as? [[String: Any]] ?? []
     }
 
     // MARK: Mods and their settings
@@ -378,12 +392,48 @@ final class Model: ObservableObject {
     }
 
     /// How many mods and settings differ from what Claude runs: a mod turned on or off
-    /// counts once, and so does each changed setting of a mod that's on.
+    /// counts once, and so does each changed setting or new version of a mod that's on.
     var pendingChanges: Int {
         let now = running(modSettings), before = running(appliedSettings)
         return Set(now.keys).union(before.keys).reduce(0) { count, id in
             guard let new = now[id], let old = before[id] else { return count + 1 }
-            return count + new.keys.filter { !(new[$0]! as AnyObject).isEqual(old[$0]) }.count
+            let loaded = loadedVersions[id], version = mods.first { $0.id == id }?.version
+            let newVersion = loaded != nil && loaded != version ? 1 : 0
+            return count + newVersion + new.keys.filter { !(new[$0]! as AnyObject).isEqual(old[$0]) }.count
+        }
+    }
+
+    // MARK: Updates
+
+    /// Compares each mod's version with the one on the repository's upstream branch.
+    func checkForUpdates() async {
+        guard await git("fetch", "--quiet") != nil else { return }
+        var found: [String: String] = [:]
+        for mod in mods {
+            guard let text = await git("show", "@{u}:mods/\(mod.id)/manifest.json"),
+                  let json = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any],
+                  let version = json["version"] as? String,
+                  version.compare(mod.version, options: .numeric) == .orderedDescending else { continue }
+            found[mod.id] = version
+        }
+        updates = found
+    }
+
+    /// Pulls the repository: every mod's update and the catalog's new mods at once.
+    func update() async {
+        busy = "Updating…"
+        message = nil
+        let before = await git("rev-parse", "HEAD") ?? "HEAD"
+        let pulled = await git("pull", "--ff-only", "--quiet") != nil
+        busy = nil
+        guard pulled else {
+            message = "Couldn't update: the folder has changes of its own. Run git pull in Terminal."
+            return
+        }
+        loadMods()
+        updates = [:]
+        if let appChanges = await git("diff", "--name-only", before, "HEAD", "--", "app"), !appChanges.isEmpty {
+            message = "The app has an update too: run app/build.py to get it."
         }
     }
 
@@ -513,6 +563,23 @@ final class Model: ObservableObject {
         if !(await waitUntil(timeout: .seconds(20)) { claude.isTerminated }) {
             busy = "Quit Claude to continue…"
             _ = await waitUntil(timeout: .seconds(600)) { claude.isTerminated }
+        }
+    }
+
+    private func git(_ arguments: String...) async -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = ["-C", repoPath] + arguments
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        return await withCheckedContinuation { continuation in
+            process.terminationHandler = { _ in
+                let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+                continuation.resume(returning: process.terminationStatus == 0
+                    ? output.trimmingCharacters(in: .whitespacesAndNewlines) : nil)
+            }
+            do { try process.run() } catch { continuation.resume(returning: nil) }
         }
     }
 
@@ -688,6 +755,11 @@ struct InstalledRow: View {
                 HStack(spacing: 12) {
                     ModTitle(mod: mod)
                     Spacer(minLength: 8)
+                    if let version = model.updates[mod.id] {
+                        Button("Update to \(version)") { Task { await model.update() } }
+                            .buttonStyle(AppButtonStyle())
+                            .disabled(model.busy != nil)
+                    }
                     if !mod.visibleSettings.isEmpty {
                         Button {
                             model.openSettings = isOpen ? nil : mod.id
@@ -970,7 +1042,7 @@ struct ContentView: View {
                     }
                 }
             }
-            Text("Each mod is a folder in mods/. The README explains how to write your own.")
+            Text("Each mod is a folder in mods/. CONTRIBUTING.md explains how to write your own and add it here.")
                 .font(.system(size: 12))
                 .foregroundStyle(Color.muted)
                 .padding(20)
