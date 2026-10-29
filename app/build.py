@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Build the Claude Colors launcher into ~/Applications/Claude Colors.app.
+"""Build the Claude Desktop Mods app into ~/Applications/Claude Desktop Mods.app.
 
-Needs the Xcode command line tools (swiftc). The app icon is Claude's, recolored as a
-rainbow, which needs Pillow; without it the app keeps a plain icon.
+Needs the Xcode command line tools (swiftc).
 """
 import os
 import platform
@@ -14,42 +13,41 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
-APP = os.path.expanduser("~/Applications/Claude Colors.app")
-EXECUTABLE = "ClaudeColors"
-CLAUDE_ICON = "/Applications/Claude.app/Contents/Resources/electron.icns"
+APP = os.path.expanduser("~/Applications/Claude Desktop Mods.app")
+EXECUTABLE = "ClaudeDesktopMods"
+BUNDLE_ID = "local.claude-desktop-mods"
 LSREGISTER = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 
 
 def build_icon(resources):
-    try:
-        sys.path.insert(0, REPO)
-        from patch import recolor_image
-    except ImportError:
-        print("Pillow is missing, so the app keeps a plain icon.")
-        return None
     with tempfile.TemporaryDirectory() as tmp:
         iconset = os.path.join(tmp, "AppIcon.iconset")
-        subprocess.run(["iconutil", "-c", "iconset", CLAUDE_ICON, "-o", iconset], check=True)
-        for name in os.listdir(iconset):
-            recolor_image(os.path.join(iconset, name))
+        os.makedirs(iconset)
+        for size in (16, 32, 128, 256, 512):
+            for scale in (1, 2):
+                name = f"icon_{size}x{size}{'@2x' if scale == 2 else ''}.png"
+                subprocess.run(
+                    ["sips", "-z", str(size * scale), str(size * scale), os.path.join(HERE, "AppIcon.png"),
+                     "--out", os.path.join(iconset, name)],
+                    check=True, capture_output=True,
+                )
         subprocess.run(["iconutil", "-c", "icns", iconset, "-o", os.path.join(resources, "AppIcon.icns")], check=True)
-    return "AppIcon"
 
 
 def main():
     running = subprocess.run(["pgrep", "-f", f"{APP}/Contents/MacOS/{EXECUTABLE}"], capture_output=True)
     if running.returncode == 0:
-        sys.exit("Claude Colors is running. Quit it from its menu bar icon first.")
+        sys.exit("Claude Desktop Mods is running. Quit it from its menu bar icon first.")
 
     # Compile before touching the installed app, so a failed build doesn't leave a broken one.
     binary = os.path.join(tempfile.mkdtemp(), EXECUTABLE)
     compiled = subprocess.run(
         ["swiftc", "-O", "-parse-as-library", "-swift-version", "5",
          "-target", f"{platform.machine()}-apple-macos14.0",
-         os.path.join(HERE, "ClaudeColors.swift"), "-o", binary],
+         os.path.join(HERE, "ClaudeDesktopMods.swift"), "-o", binary],
     )
     if compiled.returncode != 0:
-        sys.exit("\nThe launcher didn't compile (errors above). Installing Xcode from the App Store, "
+        sys.exit("\nThe app didn't compile (errors above). Installing Xcode from the App Store, "
                  "or updating the command line tools with `xcode-select --install`, usually fixes it.")
 
     shutil.rmtree(APP, ignore_errors=True)
@@ -58,11 +56,14 @@ def main():
     os.makedirs(macos)
     os.makedirs(resources)
     shutil.move(binary, os.path.join(macos, EXECUTABLE))
+    build_icon(resources)
+
     info = {
-        "CFBundleName": "Claude Colors",
-        "CFBundleDisplayName": "Claude Colors",
-        "CFBundleIdentifier": "local.claude-colors.launcher",
+        "CFBundleName": "Claude Desktop Mods",
+        "CFBundleDisplayName": "Claude Desktop Mods",
+        "CFBundleIdentifier": BUNDLE_ID,
         "CFBundleExecutable": EXECUTABLE,
+        "CFBundleIconFile": "AppIcon",
         "CFBundlePackageType": "APPL",
         "CFBundleShortVersionString": "1.0",
         "CFBundleVersion": "1",
@@ -70,18 +71,15 @@ def main():
         # Lives in the menu bar, without a Dock icon.
         "LSUIElement": True,
         "NSHighResolutionCapable": True,
-        "ClaudeColorsRepo": REPO,
+        "CDMRepo": REPO,
     }
-    icon = build_icon(resources)
-    if icon:
-        info["CFBundleIconFile"] = icon
     with open(os.path.join(APP, "Contents", "Info.plist"), "wb") as f:
         plistlib.dump(info, f)
 
     # An ad-hoc signature only names the exact build, so macOS would forget the Accessibility
     # permission on each rebuild, or not match it at all. Naming the app by its ID instead
-    # keeps the permission tied to Claude Colors.
-    requirement = f'designated => identifier "{info["CFBundleIdentifier"]}"'
+    # keeps the permission tied to Claude Desktop Mods.
+    requirement = f'designated => identifier "{BUNDLE_ID}"'
     subprocess.run(["codesign", "--force", "--deep", "--sign", "-", "-r=" + requirement, APP],
                    check=True, capture_output=True)
     subprocess.run([LSREGISTER, "-f", APP], check=True)

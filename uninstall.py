@@ -1,34 +1,26 @@
 #!/usr/bin/env python3
-"""Remove Claude Colors from the Claude desktop app. Run it from Terminal.
+"""Remove Claude Desktop Mods from the Claude desktop app. Run it from Terminal.
 
-Once Claude is quit, it turns Developer Mode off, removes the snippet from Claude's
-DevTools, moves an old patched "Claude Colors.app" to the Trash, then reopens Claude.
-Picker choices stay in Claude's storage, unused, so a reinstall picks them up again.
+Once Claude is quit, it removes the mods' snippet from Claude's DevTools and turns
+Developer Mode off, unless it was on before CDM. It deletes the Preferences backup
+install.py made, then reopens Claude. It touches nothing else of Claude: not the app,
+not your conversations or settings. What the mods saved stays in Claude's storage,
+unused, so a reinstall picks it up again.
 """
 import json
 import os
-import plistlib
 import subprocess
 import time
 
-from setup import DEVELOPER_SETTINGS, PREFERENCES, SNIPPET_NAME, claude_is_running, update_json
-
-PATCHED_COPY = os.path.expanduser("~/Applications/Claude Colors.app")
-
-
-def bundle_id(app):
-    try:
-        with open(os.path.join(app, "Contents", "Info.plist"), "rb") as f:
-            return plistlib.load(f).get("CFBundleIdentifier")
-    except OSError:
-        return None
+from install import (DEVELOPER_SETTINGS, OLD_SNIPPET_NAMES, PREFERENCES, SETTINGS, SNIPPET_NAME, claude_is_running,
+                     read_json, save_settings, update_json)
 
 
-def remove_snippet(data):
+def remove_snippets(data):
     preferences = data.get("electron", {}).get("devtools", {}).get("preferences", {})
     if "script-snippets" in preferences:
-        snippets = json.loads(preferences["script-snippets"])
-        kept = [s for s in snippets if s.get("name") != SNIPPET_NAME]
+        removed = {SNIPPET_NAME, *OLD_SNIPPET_NAMES}
+        kept = [s for s in json.loads(preferences["script-snippets"]) if s.get("name") not in removed]
         preferences["script-snippets"] = json.dumps(kept, separators=(",", ":"), ensure_ascii=False)
 
 
@@ -38,22 +30,21 @@ def main():
         while claude_is_running():
             time.sleep(1)
 
-    if os.path.exists(DEVELOPER_SETTINGS):
+    settings = read_json(SETTINGS) if os.path.exists(SETTINGS) else {}
+    if os.path.exists(DEVELOPER_SETTINGS) and not settings.get("developerModeWasOn"):
         update_json(DEVELOPER_SETTINGS, lambda data: data.update(allowDevTools=False))
+    if "developerModeWasOn" in settings:
+        # The next install notes it again.
+        del settings["developerModeWasOn"]
+        save_settings(settings)
     if os.path.exists(PREFERENCES):
-        update_json(PREFERENCES, remove_snippet)
-    print("Developer Mode is off and the snippet is removed from Claude's DevTools.")
-
-    # The launcher lives at the same path, so only the old patched copy, known by its ID, goes.
-    if bundle_id(PATCHED_COPY) == "local.claude-colors":
-        subprocess.run(
-            ["osascript", "-e", f'tell application "Finder" to delete POSIX file "{PATCHED_COPY}"'],
-            check=True, capture_output=True,
-        )
-        print("Moved the old patched Claude Colors.app to the Trash.")
+        update_json(PREFERENCES, remove_snippets)
+    if os.path.exists(PREFERENCES + ".cdm-backup"):
+        os.remove(PREFERENCES + ".cdm-backup")
+    print("The mods are removed from Claude's DevTools, and Developer Mode is back as it was.")
 
     subprocess.run(["open", "-b", "com.anthropic.claudefordesktop"], check=True)
-    print("Claude is reopening, without Claude Colors.")
+    print("Claude is reopening, without mods.")
 
 
 if __name__ == "__main__":

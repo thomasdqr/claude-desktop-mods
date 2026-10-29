@@ -1,0 +1,51 @@
+{
+  "id": "color-tabs",
+  "name": "Color Tabs",
+  "version": "1.1.0",
+  "description": "Turns each project in the sidebar into a colored block with its own icon.",
+  "author": "thomasdqr",
+  "icon": { "symbol": "swatchpalette.fill", "color": "#F0609E" },
+  "main": "main.js",
+  "touches": ["sidebar"],
+  "assets": {
+    "icons": "icons.json"
+  },
+  "settings": [
+    {
+      "key": "runningAnimation",
+      "type": "choice",
+      "label": "While a session runs",
+      "description": "How a block shows that one of its sessions is running.",
+      "options": [
+        { "value": "orbit", "label": "Moving light" },
+        { "value": "pulse", "label": "Pulsing border" },
+        { "value": "dot", "label": "Dot on the icon" },
+        { "value": "none", "label": "None" }
+      ],
+      "default": "orbit"
+    },
+    {
+      "key": "routinesBlock",
+      "type": "toggle",
+      "label": "Routines as a block",
+      "description": "Gives scheduled routines their own colored block, like a project.",
+      "default": true
+    },
+    {
+      "key": "visibleRows",
+      "type": "number",
+      "label": "Sessions per block",
+      "description": "The rest stays behind \"Show more\".",
+      "min": 1,
+      "max": 20,
+      "default": 5
+    },
+    {
+      "key": "projects",
+      "type": "hidden",
+      "description": "Starting color and Lucide icon per project name. The icon picker in Claude edits these.",
+      "default": {}
+    }
+  ],
+  "testedOn": "Claude 4.29"
+}
