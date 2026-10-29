@@ -82,9 +82,31 @@ enum Automation {
         return value as? [AXUIElement] ?? []
     }
 
-    /// A window of `pid` that isn't one of `known`.
-    static func newWindow(of pid: pid_t, besides known: [AXUIElement]) -> AXUIElement? {
-        windows(of: pid).first { window in !known.contains { CFEqual($0, window) } }
+    /// Whether the window shows DevTools' own page. Claude opens other windows, some hidden.
+    static func isDevTools(_ window: AXUIElement) -> Bool {
+        webPage(in: window) { $0.scheme == "devtools" } != nil
+    }
+
+    /// Electron only shows its web pages to Accessibility while asked to.
+    static func showWebPages(_ on: Bool, of pid: pid_t) {
+        AXUIElementSetAttributeValue(AXUIElementCreateApplication(pid), "AXManualAccessibility" as CFString,
+                                     on ? kCFBooleanTrue : kCFBooleanFalse)
+    }
+
+    /// The first web page under `element` whose address matches.
+    static func webPage(in element: AXUIElement, depth: Int = 0, where matches: (URL) -> Bool) -> AXUIElement? {
+        if string(element, kAXRoleAttribute) == "AXWebArea" {
+            var url: CFTypeRef?
+            AXUIElementCopyAttributeValue(element, "AXURL" as CFString, &url)
+            if let url = url as? URL, matches(url) { return element }
+        }
+        guard depth < 12 else { return nil }
+        var children: CFTypeRef?
+        AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &children)
+        for child in children as? [AXUIElement] ?? [] {
+            if let page = webPage(in: child, depth: depth + 1, where: matches) { return page }
+        }
+        return nil
     }
 
     static func title(of window: AXUIElement) -> String {
@@ -98,11 +120,29 @@ enum Automation {
         return string(element as! AXUIElement, kAXRoleAttribute)
     }
 
-    /// Shrinks the window into the bottom-right corner of the main screen, nearly all of it
-    /// off-screen. DevTools saves its bounds when it closes, so it opens there next time.
+    /// Since macOS 14, an app can't take the front back from another on its own; Accessibility
+    /// can. Off the main thread, so this app can answer the request when it's about itself.
+    static func bringToFront(_ pid: pid_t) {
+        DispatchQueue.global().async {
+            AXUIElementSetAttributeValue(AXUIElementCreateApplication(pid), kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+        }
+    }
+
+    static func isTyping(in pid: pid_t) -> Bool {
+        ["AXTextField", "AXTextArea", "AXComboBox"].contains(focusedRole(of: pid))
+    }
+
+    static func isFocused(_ window: AXUIElement, of pid: pid_t) -> Bool {
+        var value: CFTypeRef?
+        AXUIElementCopyAttributeValue(AXUIElementCreateApplication(pid), kAXFocusedWindowAttribute as CFString, &value)
+        return value.map { CFEqual($0, window) } ?? false
+    }
+
+    /// Shrinks the window as far as it goes, into the bottom-right corner of the main screen and
+    /// nearly all off it. DevTools saves its bounds when it closes, so it opens there next time.
     static func tuckAway(_ window: AXUIElement) {
         guard let screen = NSScreen.screens.first?.frame else { return }
-        var size = CGSize(width: 480, height: 320)
+        var size = CGSize(width: 1, height: 1)
         // Accessibility positions start at the top-left of the main screen.
         var origin = CGPoint(x: screen.maxX - 4, y: screen.height - 4)
         if let value = AXValueCreate(.cgSize, &size) {
@@ -250,6 +290,10 @@ final class Model: ObservableObject {
     @Published var updateNotes: [String: String] = [:]
     /// A higher version of this app, upstream or pulled but not built yet.
     @Published var appUpdate: String?
+    /// Whether this app ran the mods in the Claude that's open: live settings need them running,
+    /// from a snippet whose runtime takes them.
+    @Published private var ranMods = false
+    @Published private var snippetTakesLiveSettings = false
     @Published var checkingForUpdates = false
     @Published var lastChecked: Date?
     @Published var autoCheck = UserDefaults.standard.object(forKey: "autoCheck") as? Bool ?? true {
@@ -278,6 +322,8 @@ final class Model: ObservableObject {
         loadMods()
         refresh()
         appliedSettings = snippetInstalled ? modSettings : [:]
+        // Opened while Claude runs, say after an update: it ran them at Claude's launch.
+        ranMods = claudeRunning && snippetInstalled && autoApply
         Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
         }
@@ -298,6 +344,7 @@ final class Model: ObservableObject {
 
     func refresh() {
         claudeRunning = claude != nil
+        if !claudeRunning { ranMods = false }
         accessibilityAllowed = Automation.isAllowed
         openAtLogin = SMAppService.mainApp.status == .enabled
         let developerSettings = readJSON(claudeData.appendingPathComponent("developer_settings.json"))
@@ -305,6 +352,7 @@ final class Model: ObservableObject {
         let snippet = installedSnippets().first { $0["name"] as? String == "cdm" }
         snippetInstalled = snippet != nil
         let bundle = snippet?["content"] as? String ?? ""
+        snippetTakesLiveSettings = bundle.contains("__cdm.configure")
         let modsLine = bundle.split(separator: "\n").first { $0.hasPrefix("// Mods: ") } ?? ""
         loadedVersions = Dictionary(modsLine.dropFirst(9).split(separator: ", ").compactMap { item in
             let parts = item.split(separator: "@")
@@ -373,6 +421,60 @@ final class Model: ObservableObject {
             settings[spec.key] = value
             entry["settings"] = settings
         }
+    }
+
+    /// The changed settings of mods running in Claude, which can restart with them there.
+    private var liveChanges: [String: [String: Any]] {
+        let now = running(modSettings), before = running(appliedSettings)
+        var changes: [String: [String: Any]] = [:]
+        for (id, new) in now {
+            // A mod whose code in Claude is older waits for the restart, settings included.
+            guard let old = before[id], loadedVersions[id] == mods.first(where: { $0.id == id })?.version else { continue }
+            let changed = new.filter { !($0.value as AnyObject).isEqual(old[$0.key]) }
+            if !changed.isEmpty { changes[id] = changed }
+        }
+        return changes
+    }
+
+    /// Whether every waiting change is a setting that applies without restarting Claude.
+    var changesApplyLive: Bool {
+        ranMods && snippetTakesLiveSettings && claudeRunning
+            && liveChanges.values.reduce(0) { $0 + $1.count } == pendingChanges
+    }
+
+    /// Sends the changed settings to the mods running in Claude, which restart with them.
+    func applyLiveSettings() async {
+        let changes = liveChanges
+        guard !changes.isEmpty,
+              let json = try? JSONSerialization.data(withJSONObject: changes, options: [.sortedKeys, .withoutEscapingSlashes])
+        else { return }
+        let command = "window.__cdm?.configure(\(String(decoding: json, as: UTF8.self)))"
+        let sent = await inDevTools("Applying settings…") { pid, devTools in
+            // The command menu's Show Console puts the cursor in the console.
+            Automation.press(Key.p, [.maskCommand, .maskShift], to: pid)
+            guard await waitUntil(timeout: .milliseconds(1500), interval: .milliseconds(30), {
+                Automation.isFocused(devTools, of: pid) && Automation.isTyping(in: pid)
+            }) else { return false }
+            Automation.type("Show Console", to: pid)
+            try? await Task.sleep(for: .milliseconds(200))
+            Automation.press(Key.enter, to: pid)
+            // Types into Claude only while the cursor is in DevTools, never in a chat.
+            guard await waitUntil(timeout: .milliseconds(1500), interval: .milliseconds(30), {
+                Automation.isFocused(devTools, of: pid) && Automation.isTyping(in: pid)
+            }) else { return false }
+            Automation.type(command, to: pid)
+            try? await Task.sleep(for: .milliseconds(150))
+            Automation.press(Key.enter, to: pid)
+            return true
+        }
+        // Claude came to the front for DevTools: give the window back to the user's next change.
+        Automation.bringToFront(ProcessInfo.processInfo.processIdentifier)
+        guard sent else { return }
+        var applied = appliedSettings["mods"] as? [String: Any] ?? [:]
+        let current = modSettings["mods"] as? [String: Any] ?? [:]
+        for id in changes.keys { applied[id] = current[id] }
+        appliedSettings["mods"] = applied
+        message = "Applied in Claude."
     }
 
     private func update(_ mod: ModInfo, _ change: (inout [String: Any]) -> Void) {
@@ -582,16 +684,32 @@ final class Model: ObservableObject {
     }
 
     private func applyMods() async {
+        ranMods = await inDevTools("Running mods…") { pid, devTools in
+            Automation.press(Key.p, .maskCommand, to: pid)
+            // Types into Claude only while the cursor is in DevTools, never in a chat.
+            guard await waitUntil(timeout: .milliseconds(1500), interval: .milliseconds(30), {
+                Automation.isFocused(devTools, of: pid) && Automation.isTyping(in: pid)
+            }) else { return false }
+            Automation.type("!cdm", to: pid)
+            try? await Task.sleep(for: .milliseconds(150))
+            Automation.press(Key.enter, to: pid)
+            return true
+        }
+        if ranMods { message = "Mods running." }
+    }
+
+    /// Opens Claude's DevTools tucked off-screen, runs `steps` in it, then closes it.
+    private func inDevTools(_ status: String, _ steps: (pid_t, AXUIElement) async -> Bool) async -> Bool {
         guard Automation.isAllowed else {
             message = "Allow Claude Desktop Mods in Accessibility first."
-            return
+            return false
         }
         guard let claude else {
             message = "Open Claude first."
-            return
+            return false
         }
         let pid = claude.processIdentifier
-        busy = "Running mods…"
+        busy = status
         message = nil
         defer { busy = nil }
 
@@ -600,35 +718,36 @@ final class Model: ObservableObject {
             NSWorkspace.shared.frontmostApplication == claude
         }
 
+        Automation.showWebPages(true, of: pid)
+        defer { Automation.showWebPages(false, of: pid) }
+        // ⌥⌘I would close a DevTools left open, by the user or by a run that failed.
+        for window in Automation.windows(of: pid) where Automation.isDevTools(window) { Automation.close(window) }
         let known = Automation.windows(of: pid)
+        // ⌥⌘I opens DevTools for the page that has the cursor. Claude's window holds two: its
+        // own frame, where the cursor is in a Code session, and claude.ai, where mods run.
+        if let page = known.lazy.compactMap({ Automation.webPage(in: $0) { $0.host == "claude.ai" } }).first {
+            AXUIElementSetAttributeValue(page, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+        }
         Automation.press(Key.i, [.maskCommand, .maskAlternate], to: pid)
         var found: AXUIElement?
-        _ = await waitUntil(timeout: .seconds(6), interval: .milliseconds(30)) {
-            found = Automation.newWindow(of: pid, besides: known)
+        _ = await waitUntil(timeout: .seconds(8), interval: .milliseconds(50)) {
+            found = Automation.windows(of: pid).first { window in
+                !known.contains { CFEqual($0, window) } && Automation.isDevTools(window)
+            }
             return found != nil
         }
         guard let devTools = found else {
             message = "DevTools didn't open. Are mods turned on?"
-            return
+            return false
         }
         Automation.tuckAway(devTools)
 
-        // DevTools titles its window with the page's address once it has loaded,
-        // which is also when ⌘P starts opening Quick Open.
-        _ = await waitUntil(timeout: .seconds(6), interval: .milliseconds(30)) {
-            Automation.title(of: devTools).contains("claude.ai")
-        }
-        Automation.press(Key.p, .maskCommand, to: pid)
-        _ = await waitUntil(timeout: .milliseconds(1500), interval: .milliseconds(30)) {
-            ["AXTextField", "AXTextArea", "AXComboBox"].contains(Automation.focusedRole(of: pid))
-        }
-        Automation.type("!cdm", to: pid)
-        try? await Task.sleep(for: .milliseconds(150))
-        Automation.press(Key.enter, to: pid)
-        // Lets DevTools hand the snippet to the page before its window goes.
+        let done = await steps(pid, devTools)
+        // Lets DevTools hand the code to the page before its window goes.
         try? await Task.sleep(for: .milliseconds(300))
         Automation.close(devTools)
-        message = "Mods running."
+        if !done { message = "DevTools didn't respond. Try again." }
+        return done
     }
 
     private func quitClaude() async {
@@ -1283,6 +1402,13 @@ struct ContentView: View {
                 if let busy = model.busy {
                     ProgressView().controlSize(.small)
                     Text(busy)
+                } else if model.pendingChanges > 0, model.changesApplyLive {
+                    Image(systemName: "checkmark.circle")
+                    Text(model.pendingChanges == 1 ? "1 change, no restart needed"
+                         : "\(model.pendingChanges) changes, no restart needed")
+                    Spacer(minLength: 8)
+                    Button("Apply") { Task { await model.applyLiveSettings() } }
+                        .buttonStyle(AppButtonStyle())
                 } else if model.pendingChanges > 0 {
                     Image(systemName: "arrow.clockwise")
                     Text(model.pendingChanges == 1 ? "1 change applies at next launch"

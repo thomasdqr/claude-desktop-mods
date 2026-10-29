@@ -11,7 +11,11 @@
 //   api.onCleanup(fn)       runs fn when the mod stops
 //   api.sidebar             what the runtime knows about Claude's sidebar markup
 // A mod that throws is logged and stopped; the others keep running.
-function claudeDesktopMods(mods) {
+//
+// The app changes settings while Claude runs with __cdm.configure({ id: { key: value } }):
+// the mod stops and starts again with them. They're kept in Claude until the next bundle,
+// built at builtAt, has them too.
+function claudeDesktopMods(mods, builtAt) {
   window.__cdm?.destroy();
 
   // Claude's sidebar markup in one place, so a Claude update gets fixed here once
@@ -61,14 +65,24 @@ function claudeDesktopMods(mods) {
   });
   observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["aria-expanded"] });
 
-  const running = [];
-  for (const mod of mods) {
+  const liveKey = (mod) => `cdm:${mod.id}:live-settings`;
+  const liveSettings = (mod) => {
+    try {
+      const live = JSON.parse(localStorage.getItem(liveKey(mod)));
+      return live?.at > builtAt ? live.settings : {};
+    } catch {
+      return {};
+    }
+  };
+
+  const running = new Map();
+  const start = (mod) => {
     const cleanups = [];
     const storageKey = (key) => `cdm:${mod.id}:${key}`;
     const api = {
       id: mod.id,
       version: mod.version,
-      settings: mod.settings,
+      settings: { ...mod.settings, ...liveSettings(mod) },
       assets: mod.assets,
       sidebar,
       storage: {
@@ -100,21 +114,33 @@ function claudeDesktopMods(mods) {
       },
     };
     const stop = () => cleanups.reverse().forEach((fn) => safely(mod, fn));
+    running.set(mod.id, stop);
     try {
       mod.activate(api);
-      running.push({ mod, stop });
     } catch (error) {
       console.error(`[Claude Desktop Mods] ${mod.id} ${mod.version} didn't start:`, error);
       stop();
+      running.delete(mod.id);
     }
-  }
+  };
+  mods.forEach(start);
 
   window.__cdm = {
-    mods: running.map(({ mod }) => `${mod.id}@${mod.version}`),
+    mods: mods.filter((mod) => running.has(mod.id)).map((mod) => `${mod.id}@${mod.version}`),
+    configure(changes) {
+      for (const [id, settings] of Object.entries(changes)) {
+        const mod = mods.find((m) => m.id === id);
+        if (!mod) continue;
+        const live = { ...liveSettings(mod), ...settings };
+        localStorage.setItem(liveKey(mod), JSON.stringify({ at: Date.now(), settings: live }));
+        running.get(id)?.();
+        start(mod);
+      }
+    },
     destroy() {
       observer.disconnect();
       cancelAnimationFrame(pending);
-      running.reverse().forEach(({ stop }) => stop());
+      [...running.values()].reverse().forEach((stop) => stop());
     },
   };
 }

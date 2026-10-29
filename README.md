@@ -61,8 +61,10 @@ and **Remove**. When a mod has a new version, **Update to …** appears next to 
 **Settings** has the app's own options, the state of each piece, **Turn off mods** and
 **Uninstall…**.
 
-A change applies when Claude restarts. The blue bar at the bottom says how many changes are
-waiting and offers **Restart Claude**.
+The blue bar at the bottom says how many changes are waiting. While Claude is open, a mod's
+settings apply without restarting it: click **Apply**, and the app restarts that mod inside
+Claude, which brings Claude to the front for a second. Installing, removing, switching a mod
+on or off and updates need **Restart Claude**.
 
 Your choices are saved in `settings.json`, which you can also edit by hand:
 
@@ -115,6 +117,9 @@ python3 check_mods.py
    DevTools snippet named `cdm`, and saves it in Claude while Claude is closed.
 3. **At each launch.** The app opens DevTools tucked off-screen, runs the snippet with
    ⌘P → `!cdm`, then closes DevTools. It only takes a moment.
+4. **Live settings.** When you change a setting, the app opens DevTools the same way and runs
+   `__cdm.configure(…)` in its console. Claude keeps the new values until the next snippet
+   has them.
 
 `install.py` only writes two of Claude's settings files, in
 `~/Library/Application Support/Claude`: `developer_settings.json` and `Preferences`. It backs

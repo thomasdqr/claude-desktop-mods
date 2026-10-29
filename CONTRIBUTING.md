@@ -78,6 +78,10 @@ What `api` gives a mod:
 | `api.onCleanup(fn)` | runs when the mod stops |
 | `api.sidebar` | helpers for Claude's sidebar: `sections()`, `routines()`, `title()`, `label()`, `rowList()`, `isRunning()`… |
 
+When the user changes a setting while Claude is open, the mod stops and `activate(api)` runs
+again with the new `api.settings`. So read settings in `activate`, and undo everything with
+`api.css` and `api.onCleanup`: then any setting applies live.
+
 Claude's markup is listed at the top of [`runtime/runtime.js`](runtime/runtime.js). Use the
 `api.sidebar` helpers rather than your own selectors where you can: when a Claude update
 changes its markup, the fix happens there once for every mod. A mod that throws is logged and
@@ -112,7 +116,8 @@ as them. So every mod:
 - ships all of its code in its folder. No `fetch`, `eval`, `new Function`, `import()`,
   WebSocket or added `<script>`. `check_mods.py` refuses them.
 - only changes how Claude looks and behaves on screen. It never sends anything anywhere.
-- cleans up after itself with `api.onCleanup`: a mod switched off leaves no trace.
+- cleans up after itself with `api.onCleanup`: a mod switched off, or restarted with new
+  settings, leaves no trace.
 
 ## 6. Update a mod
 

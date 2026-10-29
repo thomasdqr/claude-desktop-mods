@@ -92,7 +92,7 @@ def build_bundle():
 // Mods: {", ".join(f'{m["id"]}@{m["version"]}' for _, m in enabled) or "none"}
 ({read_text(os.path.join(HERE, "runtime", "runtime.js"))})([
   {bundled}
-]);
+], {int(time.time() * 1000)});
 """
     os.makedirs(os.path.dirname(BUNDLE), exist_ok=True)
     with open(BUNDLE, "w") as f:
