@@ -16,6 +16,7 @@ REPO = os.path.dirname(HERE)
 APP = os.path.expanduser("~/Applications/Claude Desktop Mods.app")
 EXECUTABLE = "ClaudeDesktopMods"
 BUNDLE_ID = "local.claude-desktop-mods"
+VERSION = open(os.path.join(HERE, "VERSION")).read().strip()
 LSREGISTER = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 
 
@@ -65,7 +66,7 @@ def main():
         "CFBundleExecutable": EXECUTABLE,
         "CFBundleIconFile": "AppIcon",
         "CFBundlePackageType": "APPL",
-        "CFBundleShortVersionString": "1.0",
+        "CFBundleShortVersionString": VERSION,
         "CFBundleVersion": "1",
         "LSMinimumSystemVersion": "14.0",
         # Lives in the menu bar, without a Dock icon.
@@ -83,7 +84,7 @@ def main():
     subprocess.run(["codesign", "--force", "--deep", "--sign", "-", "-r=" + requirement, APP],
                    check=True, capture_output=True)
     subprocess.run([LSREGISTER, "-f", APP], check=True)
-    print(f"Built {APP}")
+    print(f"Built {APP} {VERSION}")
 
 
 if __name__ == "__main__":

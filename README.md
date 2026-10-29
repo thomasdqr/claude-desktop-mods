@@ -91,7 +91,10 @@ The app checks for new versions when it opens, then every 6 hours. **Update to â
 repository, which brings every mod's update and the catalog's new mods at once. Then
 **Restart Claude** loads them.
 
-When the app itself changed, it says so: run `python3 app/build.py` again to get it.
+The app has its own version, shown at the top of **Settings**. When a new one is out,
+**Update to â€¦** there pulls the repository, rebuilds the app and reopens it. If the build
+fails, the old version keeps running, and `~/Library/Logs/Claude Desktop Mods update.log`
+says why. A change to `app/` needs a higher `app/VERSION`, and CI checks it.
 
 ## Write a mod
 

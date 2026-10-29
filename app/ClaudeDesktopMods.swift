@@ -10,6 +10,8 @@ import SwiftUI
 
 let claudeBundleID = "com.anthropic.claudefordesktop"
 let repoPath = Bundle.main.object(forInfoDictionaryKey: "CDMRepo") as? String ?? ""
+/// From app/VERSION, which build.py copies into Info.plist.
+let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0"
 let claudeData = FileManager.default.homeDirectoryForCurrentUser
     .appendingPathComponent("Library/Application Support/Claude")
 // Claude's page needs a moment after its window shows before DevTools can reach it.
@@ -246,6 +248,8 @@ final class Model: ObservableObject {
     @Published var updates: [String: String] = [:]
     /// What each update changes: the subject of the commit that raised its version.
     @Published var updateNotes: [String: String] = [:]
+    /// A higher version of this app, upstream or pulled but not built yet.
+    @Published var appUpdate: String?
     @Published var checkingForUpdates = false
     @Published var lastChecked: Date?
     @Published var autoCheck = UserDefaults.standard.object(forKey: "autoCheck") as? Bool ?? true {
@@ -443,14 +447,20 @@ final class Model: ObservableObject {
         }
         updates = found
         updateNotes = notes
+        let pulled = try? String(contentsOfFile: (repoPath as NSString).appendingPathComponent("app/VERSION"))
+        let upstream = await git("show", "@{u}:app/VERSION")
+        appUpdate = [pulled, upstream].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { $0.compare(appVersion, options: .numeric) == .orderedDescending }
+            .max { $0.compare($1, options: .numeric) == .orderedAscending }
         lastChecked = Date()
     }
+
+    var updateCount: Int { updates.count + (appUpdate == nil ? 0 : 1) }
 
     /// Pulls the repository: every mod's update and the catalog's new mods at once.
     func update() async {
         busy = "Updating…"
         message = nil
-        let before = await git("rev-parse", "HEAD") ?? "HEAD"
         let pulled = await git("pull", "--ff-only", "--quiet") != nil
         busy = nil
         guard pulled else {
@@ -460,8 +470,44 @@ final class Model: ObservableObject {
         loadMods()
         updates = [:]
         updateNotes = [:]
-        if let appChanges = await git("diff", "--name-only", before, "HEAD", "--", "app"), !appChanges.isEmpty {
-            message = "The app has an update too: run app/build.py to get it."
+    }
+
+    func updateAll() async {
+        if !updates.isEmpty { await update() }
+        if appUpdate != nil, message == nil { await updateApp() }
+    }
+
+    /// Pulls, then rebuilds this app with app/build.py and reopens it.
+    func updateApp() async {
+        busy = "Updating the app…"
+        message = nil
+        guard await git("pull", "--ff-only", "--quiet") != nil else {
+            busy = nil
+            message = "Couldn't update: the folder has changes of its own. Run git pull in Terminal."
+            return
+        }
+        guard let python else {
+            busy = nil
+            message = "Python 3 wasn't found."
+            return
+        }
+        // build.py won't replace a running app, so a shell waits for this one to quit first.
+        // It reopens the app even if the build fails: the old version is still in place then.
+        let log = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Logs/Claude Desktop Mods update.log").path
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [
+            "-c", #"while kill -0 "$1" 2>/dev/null; do sleep 0.2; done; "$2" "$3" > "$4" 2>&1; open "$5""#, "sh",
+            String(ProcessInfo.processInfo.processIdentifier), python,
+            (repoPath as NSString).appendingPathComponent("app/build.py"), log, Bundle.main.bundlePath,
+        ]
+        do {
+            try process.run()
+            NSApp.terminate(nil)
+        } catch {
+            busy = nil
+            message = "Couldn't update the app: \(error.localizedDescription)"
         }
     }
 
@@ -611,11 +657,13 @@ final class Model: ObservableObject {
         }
     }
 
+    private var python: String? {
+        ["/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/usr/bin/python3"]
+            .first(where: FileManager.default.isExecutableFile(atPath:))
+    }
+
     private func runScript(_ name: String) async -> String {
-        let candidates = ["/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/usr/bin/python3"]
-        guard let python = candidates.first(where: FileManager.default.isExecutableFile(atPath:)) else {
-            return "Python 3 wasn't found."
-        }
+        guard let python else { return "Python 3 wasn't found." }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: python)
         process.arguments = [(repoPath as NSString).appendingPathComponent(name)]
@@ -977,8 +1025,8 @@ struct ContentView: View {
                         Image(systemName: tab.symbol).frame(width: 16)
                         Text(tab.rawValue)
                         Spacer()
-                        if tab == .installed, !model.updates.isEmpty {
-                            Badge(text: model.updates.count == 1 ? "1 update" : "\(model.updates.count) updates",
+                        if tab == .installed, model.updateCount > 0 {
+                            Badge(text: model.updateCount == 1 ? "1 update" : "\(model.updateCount) updates",
                                   color: .accent)
                         } else if tab == .installed, !model.installed.isEmpty {
                             Text("\(model.installed.count)").foregroundStyle(Color.muted)
@@ -1049,6 +1097,12 @@ struct ContentView: View {
         return "Checked \(ago)"
     }
 
+    private var versionDetail: String {
+        if model.appUpdate != nil { return "A new version is out. The app restarts to update." }
+        if model.checkingForUpdates { return "Checking…" }
+        return model.lastChecked == nil ? "Not checked yet" : "Up to date. \(checkedText)."
+    }
+
     @ViewBuilder private var page: some View {
         switch model.tab {
         case .installed: installedPage
@@ -1072,7 +1126,7 @@ struct ContentView: View {
             .padding(.top, 70)
         } else {
             VStack(spacing: 0) {
-                if !model.updates.isEmpty { updatesBanner }
+                if model.updateCount > 0 { updatesBanner }
                 ForEach(model.installed) { InstalledRow(mod: $0) }
             }
         }
@@ -1084,7 +1138,7 @@ struct ContentView: View {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: "sparkles").font(.system(size: 15)).padding(.top, 1)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(updated.count == 1 ? "1 update available" : "\(updated.count) updates available")
+                    Text(model.updateCount == 1 ? "1 update available" : "\(model.updateCount) updates available")
                         .font(.system(size: 13, weight: .semibold))
                     ForEach(updated) { mod in
                         let note = model.updateNotes[mod.id].map { ": \($0)" } ?? ""
@@ -1092,9 +1146,12 @@ struct ContentView: View {
                             .font(.system(size: 12))
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                    if let appUpdate = model.appUpdate {
+                        Text("Claude Desktop Mods \(appUpdate): the app restarts to update").font(.system(size: 12))
+                    }
                 }
                 Spacer(minLength: 8)
-                Button("Update all") { Task { await model.update() } }
+                Button("Update all") { Task { await model.updateAll() } }
                     .buttonStyle(AppButtonStyle(prominent: true))
                     .disabled(model.busy != nil)
             }
@@ -1135,6 +1192,28 @@ struct ContentView: View {
 
     private var settingsPage: some View {
         VStack(alignment: .leading, spacing: 0) {
+            ListRow {
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Version \(appVersion)").font(.system(size: 13, weight: .medium))
+                        Text(versionDetail).font(.system(size: 12)).foregroundStyle(Color.muted)
+                    }
+                    Spacer(minLength: 8)
+                    if let appUpdate = model.appUpdate {
+                        Button("Update to \(appUpdate)") { Task { await model.updateApp() } }
+                            .buttonStyle(AppButtonStyle(prominent: true))
+                            .disabled(model.busy != nil)
+                    } else {
+                        Button {
+                            Task { await model.checkForUpdates() }
+                        } label: {
+                            Label("Check for updates", systemImage: "arrow.clockwise")
+                        }
+                        .buttonStyle(AppButtonStyle())
+                        .disabled(model.checkingForUpdates || model.busy != nil)
+                    }
+                }
+            }
             ToggleRow(
                 title: "Run mods when Claude opens",
                 detail: "Runs them a few seconds after Claude starts.",
@@ -1302,9 +1381,9 @@ struct MenuContent: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        if !model.updates.isEmpty {
-            Button(model.updates.count == 1 ? "Install 1 update" : "Install \(model.updates.count) updates") {
-                Task { await model.update() }
+        if model.updateCount > 0 {
+            Button(model.updateCount == 1 ? "Install 1 update" : "Install \(model.updateCount) updates") {
+                Task { await model.updateAll() }
             }
             Divider()
         }

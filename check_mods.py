@@ -2,7 +2,8 @@
 """Check every mod in mods/ before it reaches the catalog. CI runs it on each pull request.
 
     python3 check_mods.py                     check the manifests, the code and the bundle
-    python3 check_mods.py --base origin/main  also require a version bump for each changed mod
+    python3 check_mods.py --base origin/main  also require a version bump for each changed mod,
+                                              and for the app
 
 Exits with 1 and lists the problems when there are any.
 """
@@ -115,6 +116,11 @@ def check_versions(mods, base):
         old_version = json.loads(old)["version"]
         if version_tuple(manifest["version"]) <= version_tuple(old_version):
             problems.append(f"{mod_id}: changed, so its version must go above {old_version}")
+    old_app = git("show", f"{base}:app/VERSION").strip()
+    app_version = read_text(os.path.join(HERE, "app", "VERSION")).strip()
+    if old_app and git("diff", "--name-only", f"{base}...HEAD", "--", "app").strip() \
+            and version_tuple(app_version) <= version_tuple(old_app):
+        problems.append(f"app: changed, so app/VERSION must go above {old_app}")
     return problems
 
 
