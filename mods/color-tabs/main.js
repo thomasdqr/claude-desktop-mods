@@ -37,7 +37,8 @@ function activate(api) {
   let picker = null;
 
   // How a block shows a running session. "orbit", the moving light, is drawn by
-  // stepOrbits below; the others are CSS on [data-ct-running].
+  // stepOrbits below, and "sparks" adds its embers in updateSparks; the rest is CSS
+  // on [data-ct-running].
   const RUNNING_CSS = {
     pulse: `
       @keyframes ct-pulse {
@@ -121,6 +122,32 @@ function activate(api) {
       }
       @media (prefers-reduced-motion: reduce) {
         [data-ct-running] [data-ct-badge]::after { background: color-mix(in srgb, var(--ct-accent) 60%, transparent); }
+      }`,
+    // Embers rise from the bottom and drift, behind the rows, while the icon glows.
+    sparks: `
+      @keyframes ct-ember {
+        0% { bottom: -4px; transform: translateX(0) scale(1); opacity: 0; }
+        15% { opacity: 0.9; }
+        100% { bottom: var(--rise); transform: translateX(var(--drift)) scale(0.3); opacity: 0; }
+      }
+      @keyframes ct-glow {
+        50% { box-shadow: 0 0 6px color-mix(in srgb, var(--ct-accent) 30%, transparent); }
+      }
+      [data-ct-section][data-ct-running] { position: relative; isolation: isolate; }
+      [data-ct-sparks] {
+        position: absolute; inset: 0; z-index: -1; overflow: hidden; border-radius: inherit; pointer-events: none;
+      }
+      [data-ct-sparks] i {
+        position: absolute; left: var(--x); width: var(--size); height: var(--size); border-radius: 50%;
+        background: var(--ct-accent); box-shadow: 0 0 6px var(--ct-accent); opacity: 0;
+        animation: ct-ember var(--duration) ease-out var(--delay) infinite;
+      }
+      @media (prefers-reduced-motion: no-preference) {
+        [data-ct-running] [data-ct-badge] { animation: ct-glow 1.8s ease-in-out infinite; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        [data-ct-sparks] { display: none; }
+        [data-ct-section][data-ct-running] { background: color-mix(in srgb, var(--ct-accent) 20%, transparent); }
       }`,
   };
 
@@ -322,6 +349,7 @@ function activate(api) {
     decorateTitle(section, look.icon, label);
     limitRows(section, label);
     if (ANIMATION === "orbit") updateOrbit(section, label);
+    if (ANIMATION === "sparks") updateSparks(section);
   }
 
   function apply() {
@@ -376,6 +404,29 @@ function activate(api) {
       section.appendChild(orbit);
     }
     if (!orbitFrame && !reducedMotion.matches) orbitFrame = requestAnimationFrame(stepOrbits);
+  }
+
+  const SPARK_COUNT = 24;
+  const between = (min, max) => (min + Math.random() * (max - min)).toFixed(2);
+
+  function updateSparks(section) {
+    let sparks = section.querySelector(":scope > [data-ct-sparks]");
+    if (!sidebar.isRunning(section)) {
+      sparks?.remove();
+      return;
+    }
+    if (sparks) return;
+    sparks = document.createElement("span");
+    sparks.setAttribute("data-ct-sparks", "");
+    sparks.setAttribute("aria-hidden", "true");
+    for (let i = 0; i < SPARK_COUNT; i++) {
+      const spark = document.createElement("i");
+      // Each ember gets its own lane, size, height and pace, so they never move in step.
+      spark.style.cssText = `--x: ${between(2, 96)}%; --size: ${between(2, 4)}px; --rise: ${between(45, 105)}%;
+        --drift: ${between(-14, 14)}px; --duration: ${between(1.6, 3.2)}s; --delay: -${between(0, 3.2)}s;`;
+      sparks.appendChild(spark);
+    }
+    section.appendChild(sparks);
   }
 
   function closePicker() {
@@ -472,7 +523,7 @@ function activate(api) {
   api.onCleanup(() => {
     cancelAnimationFrame(orbitFrame);
     closePicker();
-    document.querySelectorAll("[data-ct-badge], [data-ct-more], [data-ct-orbit]").forEach((el) => el.remove());
+    document.querySelectorAll("[data-ct-badge], [data-ct-more], [data-ct-orbit], [data-ct-sparks]").forEach((el) => el.remove());
     document.querySelectorAll("[data-ct-section]").forEach((el) => el.style.removeProperty("--ct-accent"));
     for (const attribute of ATTRIBUTES) {
       document.querySelectorAll(`[${attribute}]`).forEach((el) => el.removeAttribute(attribute));

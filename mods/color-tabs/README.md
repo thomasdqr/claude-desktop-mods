@@ -18,7 +18,7 @@ tab groups in Arc.
 
 | Setting | What it does | Default |
 |---|---|---|
-| While a session runs | Moving light around the block, pulsing border, shimmer, breathing color, loading bar, spinner or dot on the icon, or none | Moving light |
+| While a session runs | Moving light around the block, pulsing border, shimmer, breathing color, loading bar, sparks, spinner or dot on the icon, or none | Moving light |
 | Routines as a block | Gives scheduled routines their own colored block | On |
 | Sessions per block | How many sessions a block shows before "Show more" | 5 |
 
