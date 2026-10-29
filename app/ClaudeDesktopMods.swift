@@ -1123,21 +1123,13 @@ struct ContentView: View {
                     }
                 }
             }
-            HStack(spacing: 10) {
-                Image(systemName: "hammer").foregroundStyle(Color.muted)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Make your own mod").font(.system(size: 13, weight: .medium))
-                    Text("Start from the template, try it in Claude, then propose it for this catalog.")
-                        .font(.system(size: 12)).foregroundStyle(Color.muted)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 8)
-                Link(destination: contributingGuide) {
-                    Label("Read the guide", systemImage: "arrow.up.right")
-                }
-                .buttonStyle(AppButtonStyle())
+            HStack(spacing: 4) {
+                Text("Want to add your own mod?").foregroundStyle(Color.muted)
+                Link("Read the guide ↗", destination: contributingGuide).foregroundStyle(Color.accent)
             }
-            .padding(20)
+            .font(.system(size: 12))
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
         }
     }
 
