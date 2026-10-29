@@ -973,6 +973,7 @@ struct ContentView: View {
                 }
                 .frame(minHeight: 420, maxHeight: .infinity)
             } else {
+                // Fixed size: with .contentSize the window fits it, then grows for the main screen.
                 VStack(alignment: .leading, spacing: 16) {
                     header
                     permissionStep
@@ -982,9 +983,9 @@ struct ContentView: View {
                 // Clears the traffic lights of the hidden title bar.
                 .padding(.top, 30)
                 .frame(width: 430)
+                .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.canvas)
         .alert(
             "Turn off Claude Desktop Mods?",
@@ -1406,7 +1407,7 @@ struct ClaudeDesktopModsApp: App {
             ContentView().environmentObject(model)
         }
         .defaultSize(width: 680, height: 420)
-        .windowResizability(.contentMinSize)
+        .windowResizability(.contentSize)
         .windowStyle(.hiddenTitleBar)
 
         MenuBarExtra("Claude Desktop Mods", systemImage: "puzzlepiece.extension.fill") {
