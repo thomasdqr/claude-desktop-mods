@@ -9,8 +9,8 @@ function activate(api) {
   const icons = api.assets.icons;
   const VISIBLE_ROWS = api.settings.visibleRows;
   const ANIMATION = api.settings.runningAnimation;
-  const ORBIT_DASH = 56;
-  const ORBIT_SPEED = 140; // px per second
+  const ORBIT_DASH = 84;
+  const ORBIT_SPEED = 210; // px per second
   const ORBIT_RADIUS = 11.25;
   const PROJECT_LOOK = { color: "#9AA3AE", icon: "folder" };
   // Clay, Claude's own color, for what Claude runs on its own.
