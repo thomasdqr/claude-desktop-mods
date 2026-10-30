@@ -22,6 +22,7 @@ function claudeDesktopMods(mods, builtAt) {
   // rather than in every mod (checked against Claude 4.29):
   //   .df-sortable-section                     the wrapper the user drags to reorder
   //     [data-group-section]                   one section (project or custom group)
+  //       [data-group-list^="cg-"]               set on a custom group, which stays above the projects
   //       [data-sidebar-group-label]           the header row
   //         [data-group-name]                  the section title
   //         [data-group-toggle][aria-expanded] the collapse button
@@ -36,6 +37,7 @@ function claudeDesktopMods(mods, builtAt) {
     sections: () => [...document.querySelectorAll("[data-group-section]")],
     title: (section) => section.querySelector("[data-group-name]") ?? section.querySelector("h3 button > span"),
     routines: () => document.querySelector('[data-select-domain="scheduled"]'),
+    isCustomGroup: (section) => Boolean(section.getAttribute("data-group-list")?.startsWith("cg-")),
     label(section) {
       const title = sidebar.title(section);
       return section.getAttribute("data-group-label") || (title ? title.textContent.trim() : "");

@@ -20,7 +20,7 @@ function activate(api) {
     "#6FC2B4", "#5BC0F8", "#4F86F7", "#A07CF0", "#C8915F", "#9AA3AE",
   ];
   const ATTRIBUTES = [
-    "data-ct-section", "data-ct-expanded", "data-ct-title", "data-ct-name", "data-ct-rows", "data-ct-running", "data-ct-routines",
+    "data-ct-section", "data-ct-expanded", "data-ct-title", "data-ct-name", "data-ct-rows", "data-ct-running", "data-ct-routines", "data-ct-caption",
   ];
   const LEADING_EMOJI = /^[^\p{L}\p{N}]+/u;
   const displayName = (label) => label.replace(LEADING_EMOJI, "").trim();
@@ -175,6 +175,12 @@ function activate(api) {
     [data-ct-section] [data-gap-after] { margin-top: 0 !important; }
     /* Routines aren't in a .df-sortable-section, so their block spaces itself. */
     [data-ct-section][data-ct-routines] { margin: 0 0 6px !important; }
+    /* Claude keeps custom groups above the projects, and drags only within each part, so each part gets a caption. */
+    [data-ct-section][data-ct-caption] { position: relative; margin-top: 20px !important; }
+    [data-ct-caption]::before {
+      content: attr(data-ct-caption); position: absolute; bottom: calc(100% + 4px); left: 6px;
+      font-size: 11px; font-weight: 500; opacity: 0.55; pointer-events: none;
+    }
 
     ${RUNNING_CSS[ANIMATION] ?? ""}
     [data-ct-orbit] {
@@ -362,6 +368,14 @@ function activate(api) {
       routines.setAttribute("data-ct-routines", "");
       decorate(routines, "Routines", ROUTINES_LOOK);
     }
+    const sections = sidebar.sections();
+    const firstGroup = sections.find(sidebar.isCustomGroup);
+    const firstProject = sections.find((section) => !sidebar.isCustomGroup(section));
+    const captions = firstGroup && firstProject ? new Map([[firstGroup, "Groups"], [firstProject, "Projects"]]) : new Map();
+    for (const section of document.querySelectorAll("[data-ct-caption]")) {
+      if (!captions.has(section)) section.removeAttribute("data-ct-caption");
+    }
+    for (const [section, caption] of captions) section.setAttribute("data-ct-caption", caption);
   }
 
   // Each light keeps its place as a fraction of the lap, per section. When a block

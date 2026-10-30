@@ -13,6 +13,8 @@ tab groups in Arc.
   rest.
 - **A running session shows.** While a session runs, its block shows it.
 - **Routines in a block.** Scheduled routines can get a block of their own.
+- **Groups apart from projects.** Claude keeps custom groups above the projects, and you drag
+  blocks only within each part. A small "Groups" and "Projects" caption shows where each part starts.
 
 ## Settings
 

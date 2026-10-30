@@ -1,7 +1,7 @@
 {
   "id": "color-tabs",
   "name": "Color Tabs",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Turns each project in the sidebar into a colored block with its own icon.",
   "author": "thomasdqr",
   "icon": { "symbol": "swatchpalette.fill", "color": "#F0609E" },
