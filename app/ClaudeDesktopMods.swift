@@ -174,6 +174,20 @@ enum Key {
     static let enter: CGKeyCode = 36
 }
 
+/// Notes a step of running mods, with the time, for when they don't show up.
+func log(_ line: String) {
+    let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/Claude Desktop Mods.log")
+    let time = Date().formatted(.dateTime.year().month().day().hour().minute().second().secondFraction(.fractional(3)))
+    guard let data = "\(time)  \(line)\n".data(using: .utf8) else { return }
+    if let file = try? FileHandle(forWritingTo: url) {
+        file.seekToEndOfFile()
+        file.write(data)
+        try? file.close()
+    } else {
+        try? data.write(to: url)
+    }
+}
+
 /// Polls `condition` every `interval` until it holds or `timeout` passes.
 func waitUntil(timeout: Duration, interval: Duration = .milliseconds(200), _ condition: () -> Bool) async -> Bool {
     let deadline = ContinuousClock.now + timeout
@@ -277,8 +291,8 @@ final class Model: ObservableObject {
     @Published var tab: Tab = .installed
     /// The installed mod whose settings are unfolded.
     @Published var openSettings: String?
-    let claudeVersion = (NSWorkspace.shared.urlForApplication(withBundleIdentifier: claudeBundleID))
-        .flatMap { Bundle(url: $0)?.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String }
+    /// Re-read on each refresh: Claude updates itself while this app runs.
+    @Published var claudeVersion: String?
     @Published var claudeRunning = false
     @Published var developerMode = false
     @Published var snippetInstalled = false
@@ -294,6 +308,8 @@ final class Model: ObservableObject {
     /// from a snippet whose runtime takes them.
     @Published private var ranMods = false
     @Published private var snippetTakesLiveSettings = false
+    /// Keeps Claude's pages visible to Accessibility while the launch watches its page.
+    private var keepWebPagesShown = false
     @Published var checkingForUpdates = false
     @Published var lastChecked: Date?
     @Published var autoCheck = UserDefaults.standard.object(forKey: "autoCheck") as? Bool ?? true {
@@ -344,6 +360,9 @@ final class Model: ObservableObject {
 
     func refresh() {
         claudeRunning = claude != nil
+        claudeVersion = NSWorkspace.shared.urlForApplication(withBundleIdentifier: claudeBundleID).flatMap {
+            NSDictionary(contentsOf: $0.appendingPathComponent("Contents/Info.plist"))?["CFBundleShortVersionString"] as? String
+        }
         if !claudeRunning { ranMods = false }
         accessibilityAllowed = Automation.isAllowed
         openAtLogin = SMAppService.mainApp.status == .enabled
@@ -674,16 +693,65 @@ final class Model: ObservableObject {
         // install.py reopens Claude before it exits, so the snippet it just saved isn't
         // in the last refresh yet.
         refresh()
-        guard autoApply, enabled, Automation.isAllowed else { return }
+        log("Claude launched")
+        guard autoApply, enabled, Automation.isAllowed else {
+            log("Not running mods: autoApply \(autoApply), enabled \(enabled), accessibility \(Automation.isAllowed)")
+            return
+        }
         guard let pid = claude?.processIdentifier else { return }
         busy = "Waiting for Claude to open…"
-        _ = await waitUntil(timeout: .seconds(30)) { !Automation.windowTitles(of: pid).isEmpty }
+        let windowShown = await waitUntil(timeout: .seconds(30)) { !Automation.windowTitles(of: pid).isEmpty }
+        log(windowShown ? "Claude's window is up" : "No Claude window after 30 s")
+        // On all through the launch: a page keeps one Accessibility element, so a new element
+        // means Claude replaced the page.
+        keepWebPagesShown = true
+        Automation.showWebPages(true, of: pid)
+        defer {
+            keepWebPagesShown = false
+            Automation.showWebPages(false, of: pid)
+        }
+        // Claude's page loads a few seconds after its window: run before, and the mods would go
+        // to Claude's own frame instead.
+        var page: AXUIElement?
+        let pageFound = await waitUntil(timeout: .seconds(30), interval: .milliseconds(300)) {
+            page = claudePage(of: pid)
+            return page != nil
+        }
+        log(pageFound ? "Page: \(address(of: page))" : "No claude.ai page after 30 s")
         try? await Task.sleep(for: pageLoadDelay)
         busy = nil
-        await applyMods()
+        // Should Claude replace its page soon after launch, the mods would go with it: watch a
+        // while, and run them again on a new page.
+        for run in 1...3 {
+            page = claudePage(of: pid)
+            await applyMods()
+            log("Ran mods: \(message ?? "no message")")
+            var newPage: AXUIElement?
+            let replaced = await waitUntil(timeout: .seconds(20), interval: .milliseconds(500)) {
+                newPage = claudePage(of: pid)
+                guard let newPage else { return false }
+                return page.map { !CFEqual($0, newPage) } ?? true
+            }
+            guard replaced, run < 3 else { break }
+            log("Claude replaced the page with \(address(of: newPage)), running mods again")
+            try? await Task.sleep(for: pageLoadDelay)
+        }
     }
 
-    private func applyMods() async {
+    private func claudePage(of pid: pid_t) -> AXUIElement? {
+        for window in Automation.windows(of: pid) {
+            if let page = Automation.webPage(in: window, where: { $0.host == "claude.ai" }) { return page }
+        }
+        return nil
+    }
+
+    private func address(of page: AXUIElement?) -> String {
+        var url: CFTypeRef?
+        if let page { AXUIElementCopyAttributeValue(page, "AXURL" as CFString, &url) }
+        return (url as? URL)?.absoluteString ?? "unknown"
+    }
+
+    func applyMods() async {
         ranMods = await inDevTools("Running mods…") { pid, devTools in
             Automation.press(Key.p, .maskCommand, to: pid)
             // Types into Claude only while the cursor is in DevTools, never in a chat.
@@ -719,7 +787,7 @@ final class Model: ObservableObject {
         }
 
         Automation.showWebPages(true, of: pid)
-        defer { Automation.showWebPages(false, of: pid) }
+        defer { if !keepWebPagesShown { Automation.showWebPages(false, of: pid) } }
         // ⌥⌘I would close a DevTools left open, by the user or by a run that failed.
         for window in Automation.windows(of: pid) where Automation.isDevTools(window) { Automation.close(window) }
         let known = Automation.windows(of: pid)
@@ -1173,7 +1241,7 @@ struct ContentView: View {
     private var status: some View {
         let (symbol, color, text): (String, Color, String) =
             !model.claudeRunning ? ("circle", .gray, "Claude isn't open")
-            : model.enabled ? ("checkmark.circle", .green, "Mods are running")
+            : model.enabled ? ("checkmark.circle", .green, "Mods are on")
             : ("exclamationmark.circle", .orange, "Mods are off")
         return VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 5) {
@@ -1363,9 +1431,23 @@ struct ContentView: View {
                 }
             }
             StatusRow(title: "Developer Mode", value: model.developerMode ? "On" : "Off", ok: model.developerMode)
-            StatusRow(title: "Mods in Claude",
-                      value: model.snippetInstalled ? "Loaded" : model.hasModsOn ? "Loaded after restart" : "None turned on",
-                      ok: model.snippetInstalled)
+            ListRow(vertical: 9) {
+                HStack {
+                    Text("Mods in Claude").font(.system(size: 13))
+                    Spacer()
+                    // Running again needs no restart: it recovers mods Claude dropped, say after an update.
+                    if model.enabled {
+                        Button("Run now") { Task { await model.applyMods() } }
+                            .buttonStyle(AppButtonStyle())
+                            .disabled(model.busy != nil || !model.claudeRunning)
+                    } else if model.hasModsOn {
+                        Button("Turn on") { Task { await model.applyChanges() } }
+                            .buttonStyle(AppButtonStyle(prominent: true))
+                            .disabled(model.busy != nil)
+                    }
+                    Badge(text: model.enabled ? "On" : "Off", color: model.enabled ? .green : Color.muted)
+                }
+            }
             StatusRow(title: "Accessibility", value: model.accessibilityAllowed ? "Allowed" : "Not allowed",
                       ok: model.accessibilityAllowed)
             HStack {
@@ -1513,6 +1595,9 @@ struct MenuContent: View {
                 Task { await model.updateAll() }
             }
             Divider()
+        }
+        if model.enabled, model.claudeRunning {
+            Button("Run mods now") { Task { await model.applyMods() } }
         }
         Button("Check for updates") { Task { await model.checkForUpdates() } }
         Button("Open Claude Desktop Mods…") {

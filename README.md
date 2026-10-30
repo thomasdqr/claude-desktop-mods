@@ -159,6 +159,9 @@ app, your conversations and Claude's settings stay as they are.
   notch. Hold ⌘ and drag other icons away, or hide some in System Settings → Menu Bar.
 - **Update says the folder has changes of its own.** You edited files in the repository. Run
   `git status` in it, keep or drop your changes, then `git pull`.
+- **Mods disappear while Claude is open**, for example after Claude updates itself or reloads.
+  Click **Settings → Mods in Claude → Run now**, or **Run mods now** in the menu bar. No restart
+  needed.
 - **A mod stops working after a Claude update.** Claude's markup probably changed; it's
   listed at the top of [`runtime/runtime.js`](runtime/runtime.js).
 - **Coming from Claude Colors?** `install.py` moves your colors from `config.json` to
