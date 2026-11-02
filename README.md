@@ -116,7 +116,10 @@ python3 check_mods.py
 2. **One snippet.** `install.py` bundles the runtime and the installed, switched-on mods into a
    DevTools snippet named `cdm`, and saves it in Claude while Claude is closed.
 3. **At each launch.** The app opens DevTools tucked off-screen, runs the snippet with
-   ⌘P → `!cdm`, then closes DevTools. It only takes a moment.
+   ⌘P → `!cdm`, then closes DevTools. It only takes a moment. Claude sometimes reloads its
+   page while open, say for a new version of claude.ai, and the mods go with it. Claude notes
+   each load in `~/Library/Logs/Claude/main.log`, so the app watches that log and runs the
+   mods again.
 4. **Live settings.** When you change a setting, the app opens DevTools the same way and runs
    `__cdm.configure(…)` in its console. Claude keeps the new values until the next snippet
    has them.
@@ -159,9 +162,9 @@ app, your conversations and Claude's settings stay as they are.
   notch. Hold ⌘ and drag other icons away, or hide some in System Settings → Menu Bar.
 - **Update says the folder has changes of its own.** You edited files in the repository. Run
   `git status` in it, keep or drop your changes, then `git pull`.
-- **Mods disappear while Claude is open**, for example after Claude updates itself or reloads.
-  Click **Settings → Mods in Claude → Run now**, or **Run mods now** in the menu bar. No restart
-  needed.
+- **Mods disappear while Claude is open.** The app runs them again when Claude reloads its
+  page. If they still go, click **Settings → Mods in Claude → Run now**, or **Run mods now** in
+  the menu bar. No restart needed.
 - **A mod stops working after a Claude update.** Claude's markup probably changed; it's
   listed at the top of [`runtime/runtime.js`](runtime/runtime.js).
 - **Coming from Claude Colors?** `install.py` moves your colors from `config.json` to

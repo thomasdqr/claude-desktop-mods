@@ -14,6 +14,9 @@ let repoPath = Bundle.main.object(forInfoDictionaryKey: "CDMRepo") as? String ??
 let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0"
 let claudeData = FileManager.default.homeDirectoryForCurrentUser
     .appendingPathComponent("Library/Application Support/Claude")
+/// Claude notes there each time it loads claude.ai: at launch, and when it reloads the page,
+/// say for a new version of claude.ai, which takes the mods with it.
+let claudeLog = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/Claude/main.log")
 // Claude's page needs a moment after its window shows before DevTools can reach it.
 let pageLoadDelay: Duration = .seconds(3)
 let contributingGuide = URL(string: "https://github.com/thomasdqr/claude-desktop-mods/blob/main/CONTRIBUTING.md")!
@@ -310,6 +313,9 @@ final class Model: ObservableObject {
     @Published private var snippetTakesLiveSettings = false
     /// Keeps Claude's pages visible to Accessibility while the launch watches its page.
     private var keepWebPagesShown = false
+    /// Set while mods wait for Claude's page, at launch or after a reload.
+    private var waitingForPage = false
+    private var claudeLogRead = (try? FileManager.default.attributesOfItem(atPath: claudeLog.path)[.size] as? UInt64) ?? 0
     @Published var checkingForUpdates = false
     @Published var lastChecked: Date?
     @Published var autoCheck = UserDefaults.standard.object(forKey: "autoCheck") as? Bool ?? true {
@@ -341,7 +347,10 @@ final class Model: ObservableObject {
         // Opened while Claude runs, say after an update: it ran them at Claude's launch.
         ranMods = claudeRunning && snippetInstalled && autoApply
         Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refresh() }
+            Task { @MainActor in
+                self?.refresh()
+                await self?.applyAfterReload()
+            }
         }
         if autoCheck { Task { await checkForUpdates() } }
         Timer.scheduledTimer(withTimeInterval: 6 * 3600, repeats: true) { [weak self] _ in
@@ -699,6 +708,8 @@ final class Model: ObservableObject {
             return
         }
         guard let pid = claude?.processIdentifier else { return }
+        waitingForPage = true
+        defer { waitingForPage = false }
         busy = "Waiting for Claude to open…"
         let windowShown = await waitUntil(timeout: .seconds(30)) { !Automation.windowTitles(of: pid).isEmpty }
         log(windowShown ? "Claude's window is up" : "No Claude window after 30 s")
@@ -736,6 +747,38 @@ final class Model: ObservableObject {
             log("Claude replaced the page with \(address(of: newPage)), running mods again")
             try? await Task.sleep(for: pageLoadDelay)
         }
+    }
+
+    private func applyAfterReload() async {
+        guard claudeLoadedPage(), !waitingForPage, busy == nil, autoApply, enabled, Automation.isAllowed,
+              let pid = claude?.processIdentifier
+        else { return }
+        log("Claude reloaded its page")
+        waitingForPage = true
+        defer { waitingForPage = false }
+        Automation.showWebPages(true, of: pid)
+        guard await waitUntil(timeout: .seconds(30), interval: .milliseconds(300), { claudePage(of: pid) != nil }) else {
+            Automation.showWebPages(false, of: pid)
+            log("No claude.ai page after 30 s")
+            return
+        }
+        try? await Task.sleep(for: pageLoadDelay)
+        await applyMods()
+        log("Ran mods: \(message ?? "no message")")
+    }
+
+    /// Whether Claude's log noted a claude.ai page load since the last look.
+    private func claudeLoadedPage() -> Bool {
+        guard let file = try? FileHandle(forReadingFrom: claudeLog) else { return false }
+        defer { try? file.close() }
+        let size = (try? file.seekToEnd()) ?? 0
+        // Claude starts a new log once this one is big enough.
+        if size < claudeLogRead { claudeLogRead = 0 }
+        guard size > claudeLogRead else { return false }
+        try? file.seek(toOffset: claudeLogRead)
+        let added = file.readDataToEndOfFile()
+        claudeLogRead = size
+        return String(decoding: added, as: UTF8.self).contains("Loaded https://claude.ai")
     }
 
     private func claudePage(of pid: pid_t) -> AXUIElement? {
